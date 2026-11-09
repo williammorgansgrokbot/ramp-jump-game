@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, minimum-scale=1, user-scalable=no, viewport-fit=cover" />
+    <meta name="theme-color" content="#2f9ef0" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Ramp Jump" />
+    <title>Ramp Jump</title>
+    <link rel="icon" href="%BASE_URL%icons/favicon-32.png" />
+    <link rel="apple-touch-icon" href="%BASE_URL%icons/apple-touch-icon.png" />
+    <link rel="manifest" href="%BASE_URL%manifest.webmanifest" />
+  </head>
+  <body>
+    <canvas id="view"></canvas>
+    <div id="hud">
+      <div id="stars" aria-hidden="true">
+        <span class="star"></span>
+        <span class="star"></span>
+        <span class="star"></span>
+        <span class="star"></span>
+        <span class="star"></span>
+      </div>
+      <div id="cars">
+        <button type="button" data-car="boy1" class="selected" aria-label="Boy 1"><i></i><b>1</b></button>
+        <button type="button" data-car="boy2" aria-label="Boy 2"><i></i><b>2</b></button>
+        <button type="button" data-car="boy3" aria-label="Boy 3"><i></i><b>3</b></button>
+        <button type="button" data-car="boy4" aria-label="Boy 4"><i></i><b>4</b></button>
+      </div>
+      <button id="tilt" type="button" aria-label="Tilt" aria-pressed="false">
+        <svg viewBox="0 0 64 64" aria-hidden="true">
+          <rect x="22" y="8" width="20" height="34" rx="4" fill="none" stroke="currentColor" stroke-width="4"/>
+          <circle cx="32" cy="36" r="2.5" fill="currentColor"/>
+          <path d="M10 40c2 10 10 16 22 16 8 0 14-3 18-8" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round"/>
+          <path d="M46 40l6 8-9 1" fill="currentColor"/>
+        </svg>
+      </button>
+      <button id="restart" type="button" aria-label="Restart">
+        <svg viewBox="0 0 64 64" aria-hidden="true">
+          <path d="M32 12a20 20 0 1 1-14 6" fill="none" stroke="currentColor" stroke-width="6" stroke-linecap="round"/>
+          <path d="M16 8v12h12" fill="none" stroke="currentColor" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </button>
+      <div id="steer">
+        <button id="left" type="button" aria-label="Left">
+          <svg viewBox="0 0 64 64" aria-hidden="true"><path d="M40 12 L18 32 L40 52" fill="none" stroke="currentColor" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+        <button id="right" type="button" aria-label="Right">
+          <svg viewBox="0 0 64 64" aria-hidden="true"><path d="M24 12 L46 32 L24 52" fill="none" stroke="currentColor" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+      </div>
+      <button id="go" type="button" aria-label="Go">
+        <svg viewBox="0 0 64 64" aria-hidden="true"><path d="M18 14 L50 32 L18 50 Z" fill="currentColor"/></svg>
+      </button>
+    </div>
+    <div id="loading" aria-hidden="true">
+      <div class="loader-car"></div>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

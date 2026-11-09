@@ -1,0 +1,232 @@
+:root {
+  --inset-t: max(10px, env(safe-area-inset-top));
+  --inset-b: max(12px, env(safe-area-inset-bottom));
+  --inset-l: max(12px, env(safe-area-inset-left));
+  --inset-r: max(12px, env(safe-area-inset-right));
+  color-scheme: light;
+  font-family: system-ui, sans-serif;
+}
+
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  background: #8fd4ff;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  overscroll-behavior: none;
+}
+
+#view {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  touch-action: none;
+}
+
+#hud {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 2;
+}
+
+button {
+  pointer-events: auto;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  cursor: pointer;
+  color: white;
+  display: grid;
+  place-items: center;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+button svg { width: 58%; height: 58%; }
+
+button.down { transform: scale(0.94); filter: brightness(1.08); }
+
+#stars {
+  position: absolute;
+  top: var(--inset-t);
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.28);
+  backdrop-filter: blur(6px);
+}
+
+.star {
+  width: clamp(22px, 5vmin, 34px);
+  height: clamp(22px, 5vmin, 34px);
+  background: rgba(255, 255, 255, 0.55);
+  clip-path: polygon(50% 0%, 61% 35%, 98% 35%, 68% 57%, 79% 91%, 50% 70%, 21% 91%, 32% 57%, 2% 35%, 39% 35%);
+}
+.star.on { background: #ffd60a; filter: drop-shadow(0 2px 0 rgba(180, 110, 0, 0.35)); }
+
+#cars {
+  position: absolute;
+  top: var(--inset-t);
+  left: var(--inset-l);
+  display: flex;
+  gap: 8px;
+  pointer-events: auto;
+}
+
+#cars button {
+  width: clamp(46px, 10vmin, 64px);
+  height: clamp(46px, 10vmin, 64px);
+  border-radius: 18px;
+  background: linear-gradient(#fff, #f2f4f8);
+  box-shadow: 0 6px 0 rgba(20, 40, 70, 0.18), inset 0 0 0 3px white;
+  position: relative;
+}
+#cars button i {
+  width: 70%;
+  height: 42%;
+  border-radius: 6px 6px 4px 4px;
+  background: var(--car, #ff3b30);
+  position: relative;
+  box-shadow: inset 0 6px 0 rgba(255,255,255,0.35);
+}
+#cars button i::before,
+#cars button i::after {
+  content: "";
+  position: absolute;
+  bottom: -6px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #222;
+  box-shadow: inset 0 0 0 2px var(--accent, #ffd60a);
+}
+#cars button i::before { left: 2px; }
+#cars button i::after { right: 2px; }
+#cars button b {
+  position: absolute;
+  right: 4px;
+  top: 2px;
+  font-size: 14px;
+  color: #1c1c1e;
+}
+#cars button.selected { box-shadow: 0 6px 0 rgba(20, 40, 70, 0.18), inset 0 0 0 3px #ffd60a; }
+
+#tilt, #restart {
+  position: absolute;
+  top: var(--inset-t);
+  width: clamp(64px, 14vmin, 88px);
+  height: clamp(64px, 14vmin, 88px);
+  border-radius: 50%;
+  background: linear-gradient(#5ac8fa, #0a84ff);
+  box-shadow: 0 7px 0 #0757b0, inset 0 2px 0 rgba(255,255,255,0.5);
+}
+#restart {
+  right: var(--inset-r);
+  background: linear-gradient(#ffb340, #ff7a00);
+  box-shadow: 0 7px 0 #c45a00, inset 0 2px 0 rgba(255,255,255,0.45);
+}
+#tilt { right: calc(var(--inset-r) + clamp(72px, 16vmin, 100px)); }
+#tilt.on { background: linear-gradient(#7dffa1, #1fbf4a); box-shadow: 0 7px 0 #128a32, inset 0 2px 0 rgba(255,255,255,0.5); }
+#tilt.nope { animation: shake 0.4s linear; }
+
+#steer {
+  position: absolute;
+  left: var(--inset-l);
+  bottom: var(--inset-b);
+  display: flex;
+  gap: 12px;
+  pointer-events: auto;
+}
+#left, #right {
+  width: clamp(78px, 18vmin, 116px);
+  height: clamp(78px, 18vmin, 116px);
+  border-radius: 28px;
+  background: linear-gradient(#ffe14a, #ffb800);
+  color: #5a3b00;
+  box-shadow: 0 8px 0 #d69200, inset 0 2px 0 rgba(255,255,255,0.65);
+}
+
+#go {
+  position: absolute;
+  right: var(--inset-r);
+  bottom: var(--inset-b);
+  width: clamp(108px, 26vmin, 158px);
+  height: clamp(108px, 26vmin, 158px);
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #b8ff9a, #34d058 45%, #1faa42);
+  color: white;
+  box-shadow: 0 10px 0 #128a32, inset 0 3px 0 rgba(255,255,255,0.55);
+  animation: pulse 1.6s ease-in-out infinite;
+}
+#go.down { animation: none; }
+
+@keyframes pulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.05); }
+}
+@keyframes shake {
+  25% { transform: translateX(-4px); }
+  75% { transform: translateX(4px); }
+}
+
+#loading {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: grid;
+  place-items: center;
+  background: linear-gradient(#8fd4ff, #fff1c9);
+}
+#loading.hidden { display: none; }
+.loader-car {
+  width: 92px;
+  height: 42px;
+  border-radius: 12px 12px 8px 8px;
+  background: #ff3b30;
+  position: relative;
+  animation: hop 0.7s ease-in-out infinite;
+  box-shadow: inset 0 8px 0 rgba(255,255,255,0.3);
+}
+.loader-car::before, .loader-car::after {
+  content: "";
+  position: absolute;
+  bottom: -10px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #222;
+}
+.loader-car::before { left: 10px; }
+.loader-car::after { right: 10px; }
+@keyframes hop {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-16px); }
+}
+
+@media (orientation: portrait) {
+  #steer { bottom: calc(var(--inset-b) + clamp(120px, 22vmin, 170px)); }
+  #cars { flex-direction: column; }
+  #stars { top: calc(var(--inset-t) + 8px); }
+}
+@media (max-height: 420px) {
+  #cars button { width: 42px; height: 42px; border-radius: 12px; }
+  #tilt, #restart { width: 58px; height: 58px; }
+  #left, #right { width: 72px; height: 72px; border-radius: 20px; }
+  #go { width: 96px; height: 96px; }
+  .star { width: 18px; height: 18px; }
+}

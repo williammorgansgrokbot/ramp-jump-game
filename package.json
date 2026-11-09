@@ -1,0 +1,26 @@
+{
+  "name": "ramp-jump-game",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1 --port 5173 --strictPort",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview --host 127.0.0.1 --port 4173 --strictPort",
+    "icons": "node scripts/make-icons.mjs",
+    "sim": "tsx scripts/check-drive.ts",
+    "test": "playwright test",
+    "test:ui": "playwright test --headed"
+  },
+  "dependencies": {
+    "@dimforge/rapier3d-compat": "^0.21.0",
+    "three": "^0.187.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.65.0",
+    "@types/three": "^0.187.0",
+    "tsx": "^4.23.15",
+    "typescript": "5.8",
+    "vite": "^6.4.6"
+  }
+}

@@ -1,6 +1,8 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { barrierBoxes, launchHeight, surfaceGrids, TRACK_HALF_WIDTH, type SurfaceGrid } from './terrain';
+import { LOOP, QUARTER, GAP, MEGA } from './stunts';
+import { buildStuntExtras } from './stuntMesh';
 import { enabledLaunch } from './catalog';
 
 /** Brightest cluster in the sea panorama (equirect, Three.js equirectUv). */
@@ -63,6 +65,11 @@ export async function buildWorld(scene: THREE.Scene, renderer: THREE.WebGLRender
   scene.add(ground(grass, sand, dirt));
   scene.add(driveDeck(runway, asphalt, wood, dirt, 3.2, 0.9, 0.04, 'road'));
   scene.add(driveDeck(landing, dirt, sand, dirt, 3.6, 0.96, 0.02, 'dirt'));
+  for (const grid of surfaceGrids()) {
+    if (grid.id === 'runway-ramp' || grid.id === 'landing') continue;
+    const dirtDeck = grid.id.endsWith('land');
+    scene.add(driveDeck(grid, dirtDeck ? dirt : asphalt, sand, dirt, 3.4, dirtDeck ? 0.96 : 0.9, 0.03, dirtDeck ? 'dirt' : 'road'));
+  }
   scene.add(dashes());
   scene.add(edgeLines());
   scene.add(chevrons());
@@ -72,13 +79,22 @@ export async function buildWorld(scene: THREE.Scene, renderer: THREE.WebGLRender
   scene.add(edgeBulbs());
   scene.add(pond(sand));
   scene.add(quarterPipe(wood));
+  const extras = buildStuntExtras(wood);
+  scene.add(extras);
   if (opts.tuftCount > 0) scene.add(grassTufts(opts.tuftCount));
   if (trees && treeMeta.length > 0) {
     const sprites = scatterTrees(trees, treeMeta, opts.treeCount);
     scene.add(sprites.shadows, sprites.foliage);
   }
 
-  return { update() {} };
+  return {
+    update() {
+      const bob = Math.sin(performance.now() / 160) * 0.05;
+      extras.traverse((obj) => {
+        if (obj.name === 'boost') obj.position.y = bob;
+      });
+    },
+  };
 }
 
 function loadTexture(url: string, anisotropy: number, repeat: boolean): Promise<THREE.Texture | null> {
@@ -132,8 +148,8 @@ function ground(grass: THREE.Texture | null, sand: THREE.Texture | null, dirt: T
     shader.vertexShader = shader.vertexShader.replace(
       '#include <begin_vertex>',
       `#include <begin_vertex>
-       float ax = abs(transformed.x);
-       float side = smoothstep(14.0, 32.0, ax);
+       float lane = min(abs(transformed.x), min(abs(transformed.x - ${LOOP.laneX.toFixed(1)}), min(abs(transformed.x - ${QUARTER.laneX.toFixed(1)}), min(abs(transformed.x - ${GAP.laneX.toFixed(1)}), abs(transformed.x - ${MEGA.laneX.toFixed(1)})))));
+       float side = smoothstep(12.0, 28.0, lane);
        float ahead = smoothstep(175.0, 250.0, transformed.z);
        float back = smoothstep(-16.0, -80.0, transformed.z);
        float wave = sin(transformed.x * 0.042) * sin(transformed.z * 0.027);
@@ -200,7 +216,7 @@ function driveDeck(
   for (let iz = 0; iz < samples.length; iz++) {
     const { z, y } = samples[iz];
     for (let ix = 0; ix <= nx; ix++) {
-      const x = -TRACK_HALF_WIDTH + (2 * TRACK_HALF_WIDTH * ix) / nx;
+      const x = grid.x - grid.half + (2 * grid.half * ix) / nx;
       positions.push(x, y, z);
       uvs.push(x / tile, z / tile);
     }
@@ -228,14 +244,15 @@ function driveDeck(
   material.onBeforeCompile = (shader) => {
     shader.uniforms.blendMap = { value: blend ?? blankTex() };
     shader.uniforms.dirtMap = { value: dirt ?? blankTex() };
+    shader.uniforms.laneX = { value: grid.x };
     shader.vertexShader = `varying vec3 vDeckWorld;\n${shader.vertexShader}`.replace(
       '#include <project_vertex>',
       `#include <project_vertex>
        vDeckWorld = (modelMatrix * vec4(transformed, 1.0)).xyz;`,
     );
-    shader.fragmentShader = `varying vec3 vDeckWorld;\nuniform sampler2D blendMap;\nuniform sampler2D dirtMap;\n${shader.fragmentShader}`;
+    shader.fragmentShader = `varying vec3 vDeckWorld;\nuniform sampler2D blendMap;\nuniform sampler2D dirtMap;\nuniform float laneX;\n${shader.fragmentShader}`;
     const mixBlock = mode === 'road'
-      ? `float rampMix = smoothstep(49.0, 52.5, vDeckWorld.z);
+      ? `float rampMix = step(abs(laneX), 0.5) * smoothstep(49.0, 52.5, vDeckWorld.z);
          diffuseColor.rgb = mix(diffuseColor.rgb, blendCol, rampMix);
          diffuseColor.rgb = mix(diffuseColor.rgb, dirtCol, edge * (1.0 - rampMix));
          float wear = smoothstep(0.55, 0.92, fract(sin(dot(vDeckWorld.xz, vec2(12.9898, 78.233))) * 43758.5453));
@@ -246,7 +263,7 @@ function driveDeck(
       `#include <map_fragment>
        vec3 blendCol = texture2D(blendMap, vMapUv).rgb;
        vec3 dirtCol = texture2D(dirtMap, vMapUv * 0.8).rgb;
-       float edge = smoothstep(5.2, 8.6, abs(vDeckWorld.x));
+       float edge = smoothstep(5.2, 8.6, abs(vDeckWorld.x - laneX));
        float macro = 0.5 + 0.5 * sin(vDeckWorld.x * 0.41) * sin(vDeckWorld.z * 0.23);
        diffuseColor.rgb *= mix(0.9, 1.06, macro);
        ${mixBlock}`,
@@ -276,8 +293,8 @@ function driveDeck(
       skirtIdx.push(a, a + 1, a + 2, a + 2, a + 1, a + 3);
     }
   };
-  pushEdge(-TRACK_HALF_WIDTH);
-  pushEdge(TRACK_HALF_WIDTH);
+  pushEdge(grid.x - grid.half);
+  pushEdge(grid.x + grid.half);
   const skirtGeo = new THREE.BufferGeometry();
   skirtGeo.setAttribute('position', new THREE.Float32BufferAttribute(skirtPos, 3));
   skirtGeo.setAttribute('uv', new THREE.Float32BufferAttribute(skirtUv, 2));
@@ -302,10 +319,12 @@ function scatterTrees(atlas: THREE.Texture | null, meta: TreeMeta[], count: numb
   let guard = 0;
   while (placed.length < count && guard < count * 40) {
     guard += 1;
-    const x = (rand() * 2 - 1) * 78;
+    const x = (rand() * 2 - 1) * 190;
     const z = -12 + rand() * 210;
     if (Math.abs(x) < 13.5 && z > -6 && z < 188) continue;
     if (Math.abs(x) < 16 && z > 46 && z < 92) continue;
+    const lanes = [LOOP.laneX, QUARTER.laneX, GAP.laneX, MEGA.laneX];
+    if (lanes.some((lane) => Math.abs(x - lane) < 12 && z > -8 && z < 160)) continue;
     const kind = Math.floor(rand() * TREE_KINDS.length);
     const tall = 3.8 + rand() * 6.2;
     const boost = TREE_KINDS[kind] === 'tree_palm' || TREE_KINDS[kind] === 'tree_pine' ? 1.25 : 1;

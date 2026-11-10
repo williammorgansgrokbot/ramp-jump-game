@@ -20,10 +20,11 @@ let checked = 0;
 const failures: string[] = [];
 
 function probe(x: number, z: number): void {
-  const visual = driveSurfaceHeight(z);
+  const visual = driveSurfaceHeight(z, x);
   if (visual === null) return;
-  const originY = visual + 20;
-  const hit = world.castShape({ x, y: originY, z }, rot, down, ball, 0, 30, true);
+  // Start just above the deck so a loop or quarter passing overhead is not the first hit.
+  const originY = visual + 2;
+  const hit = world.castShape({ x, y: originY, z }, rot, down, ball, 0, 8, true);
   checked += 1;
   if (!hit) {
     failures.push(`miss x=${x} z=${z.toFixed(2)} visual=${visual.toFixed(3)}`);
@@ -38,6 +39,13 @@ function probe(x: number, z: number): void {
 }
 
 for (const grid of surfaceGrids()) {
+  if (Math.abs(grid.x) > 1) {
+    for (let i = 0; i < grid.samples; i += 3) {
+      const z = grid.z0 + (i / (grid.samples - 1)) * (grid.z1 - grid.z0);
+      if (z < grid.z0 + 0.8 || z > grid.z1 - 0.8) continue;
+      probe(grid.x, z);
+    }
+  }
   for (let i = 0; i < grid.samples; i += 2) {
     const z = grid.z0 + (i / (grid.samples - 1)) * (grid.z1 - grid.z0);
     for (const x of [0, 4, -4]) probe(x, z);

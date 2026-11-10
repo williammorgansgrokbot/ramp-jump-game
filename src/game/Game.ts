@@ -9,6 +9,7 @@ import { Input } from './input';
 import { Particles } from './particles';
 import { DriveWorld, type ContactPoint, type DrivePose } from './physics';
 import { initialQuality, isIOS, stepDown, type Quality } from './quality';
+import { stuntById, type StuntId } from './stunts';
 import { driveSurfaceHeight, SPAWN } from './terrain';
 import { HORIZON, SKY_TINT, SUN_DIR, buildWorld, type WorldView } from './worldMesh';
 
@@ -35,6 +36,8 @@ export interface GameStats {
   assets: string;
   physics: string;
   boot: string;
+  stunt: string;
+  looped: boolean;
 }
 
 const UP = new THREE.Vector3(0, 1, 0);
@@ -63,6 +66,8 @@ export class Game {
     assets: 'pending',
     physics: 'pending',
     boot: '',
+    stunt: 'launch',
+    looped: false,
   };
 
   private renderer!: THREE.WebGLRenderer;
@@ -104,9 +109,12 @@ export class Game {
   private readonly spinQ = new THREE.Quaternion();
   private readonly outward = new THREE.Vector3();
   private pose!: DrivePose;
+  private stuntId: StuntId = 'launch';
+  private stuntBase = SPAWN.y;
+  private faceCam = false;
 
   constructor() {
-    this.input = new Input((id) => this.selectCar(id));
+    this.input = new Input((id) => this.selectCar(id), (id) => this.selectStunt(id));
   }
 
   async start(): Promise<void> {
@@ -194,6 +202,10 @@ export class Game {
     this.stats.ready = true;
     this.stats.dpr = this.quality.dpr;
     window.__game = this.stats;
+    window.__frame = (mode: string) => {
+      this.faceCam = mode === 'face';
+      this.snapCam = true;
+    };
     if (new URLSearchParams(location.search).get('debug') === '1') this.showDebug();
     window.addEventListener('touchstart', (event) => {
       if (event.touches.length >= 3) this.showDebug();
@@ -310,6 +322,12 @@ export class Game {
     if (!this.pose) return;
 
     this.syncCar(this.pose);
+    this.car.updateFace(dt, {
+      steer: command.steer,
+      airborne: this.pose.airborne,
+      vy: this.pose.vy,
+      crash: false,
+    });
     this.syncLoose();
     this.followCamera(dt, this.pose);
     this.followSun(this.pose);
@@ -368,6 +386,7 @@ export class Game {
     this.stats.dents += moved;
     this.stats.impacted = true;
     this.stats.maxImpact = Math.max(this.stats.maxImpact, fallSpeed);
+    this.car.updateFace(0, { steer: 0, airborne: false, vy: 0, crash: true });
     this.sfx.crunch(strength);
     if (strength < 0.7) this.sfx.boing();
     this.particles.sparksAt(contact.x, contact.y, contact.z, strength);
@@ -442,21 +461,36 @@ export class Game {
       part.detached = false;
     }
     this.loose = [];
-    this.drive.reset();
+    this.drive.reset(this.stuntId);
+    this.drive.settle();
     this.car.resetDamage();
+    const spawn = stuntById(this.stuntId).spawn;
+    this.stuntBase = spawn.y;
     this.stats.dents = 0;
     this.stats.partsDetached = 0;
     this.stats.impacted = false;
     this.stats.maxImpact = 0;
     this.stats.stars = 0;
-    this.stats.maxAirY = SPAWN.y;
+    this.stats.looped = false;
+    this.stats.stunt = this.stuntId;
+    this.stats.maxAirY = spawn.y;
     this.stats.airTime = 0;
     this.stats.restarts += 1;
     this.stuck = 0;
     this.snapCam = true;
     this.paintStars();
     this.sfx.boing();
-    this.particles.celebrate(SPAWN.x, SPAWN.y + 1, SPAWN.z);
+    this.particles.celebrate(spawn.x, spawn.y + 1, spawn.z);
+  }
+
+  private selectStunt(id: string): void {
+    const next = stuntById(id);
+    this.stuntId = next.id;
+    this.stats.stunt = next.id;
+    document.querySelectorAll<HTMLElement>('[data-stunt]').forEach((button) => {
+      button.classList.toggle('selected', button.dataset.stunt === next.id);
+    });
+    if (this.drive && this.car) this.restart();
   }
 
   private selectCar(id: string): void {
@@ -500,12 +534,17 @@ export class Game {
 
   private followCamera(dt: number, pose: DrivePose): void {
     const yaw = Math.atan2(2 * (pose.qw * pose.qy + pose.qx * pose.qz), 1 - 2 * (pose.qy * pose.qy + pose.qz * pose.qz));
+    if (this.faceCam) {
+      this.desired.set(pose.x + Math.cos(yaw) * 1.7 + Math.sin(yaw) * 3.6, pose.y + 1.05, pose.z - Math.sin(yaw) * 1.7 + Math.cos(yaw) * 3.6);
+      this.lookTarget.set(pose.x, pose.y + 0.5, pose.z + Math.cos(yaw) * 0.2);
+    } else {
     const air = pose.airborne ? 1 : 0;
     const dist = 7.3 + Math.min(pose.speed, 28) * 0.07 + air * 1.5;
     const height = 2.7 + Math.min(pose.speed, 28) * 0.02 + air * 0.7;
     const ahead = 3.3 + Math.min(pose.speed, 30) * 0.07;
     this.desired.set(pose.x - Math.sin(yaw) * dist, pose.y + height, pose.z - Math.cos(yaw) * dist);
     this.lookTarget.set(pose.x + Math.sin(yaw) * ahead, pose.y + 1.1, pose.z + Math.cos(yaw) * ahead);
+    }
     if (this.snapCam) {
       this.camera.position.copy(this.desired);
       this.look.copy(this.lookTarget);
@@ -520,7 +559,7 @@ export class Game {
       this.camera.position.y += (Math.random() - 0.5) * this.shakeAmp * 0.55;
       this.shakeAmp = Math.max(0, this.shakeAmp - dt * 1.15);
     }
-    const ground = driveSurfaceHeight(this.camera.position.z);
+    const ground = driveSurfaceHeight(this.camera.position.z, this.camera.position.x);
     if (ground !== null && this.camera.position.y < ground + 0.55) this.camera.position.y = ground + 0.55;
     this.camera.lookAt(this.look);
     this.placeContact(pose);
@@ -545,15 +584,18 @@ export class Game {
     this.stats.airborne = pose.airborne;
     this.stats.maxAirY = pose.maxAirY;
     this.stats.airTime = pose.airTime;
+    this.stats.looped = pose.looped;
+    this.stats.stunt = pose.stunt;
   }
 
   private refreshStars(pose: DrivePose): void {
+    const air = pose.maxAirY - (this.stuntBase - SPAWN.y);
     let stars = this.stats.stars;
-    if (pose.maxAirY > 5) stars = Math.max(stars, 1);
+    if (air > 5) stars = Math.max(stars, 1);
     if (pose.airTime > 0.75 || (pose.airborne && pose.y > 8)) stars = Math.max(stars, 2);
     if (this.stats.impacted) stars = Math.max(stars, 3);
     if (this.stats.dents > 0 || this.stats.partsDetached > 0) stars = Math.max(stars, 4);
-    if (pose.airTime > 1.4 || this.stats.partsDetached >= 2 || pose.maxAirY > 11) stars = Math.max(stars, 5);
+    if (pose.airTime > 1.4 || this.stats.partsDetached >= 2 || air > 11) stars = Math.max(stars, 5);
     if (stars !== this.stats.stars) {
       const gained = stars > this.stats.stars;
       this.stats.stars = stars;
@@ -624,7 +666,7 @@ export class Game {
 
   private placeContact(pose: DrivePose): void {
     if (!this.contact) return;
-    const ground = driveSurfaceHeight(pose.z);
+    const ground = driveSurfaceHeight(pose.z, pose.x);
     this.contact.visible = pose.wheelsOn > 0 && ground !== null;
     if (ground === null) return;
     this.contact.position.set(pose.x, ground + 0.035, pose.z);
@@ -691,5 +733,6 @@ function rendererUsable(renderer: { capabilities?: { getMaxAnisotropy?: () => nu
 declare global {
   interface Window {
     __game?: GameStats;
+    __frame?: (mode: string) => void;
   }
 }

@@ -1,5 +1,6 @@
 import RAPIER from '@dimforge/rapier3d-compat';
-import { barrierBoxes, quatPitch, SPAWN, trackFields } from './terrain';
+import { BOOSTS, LOOP, QUARTER, loopPose, loopRibbon, quarterRibbon, laneCenter, stuntById, type StuntId } from './stunts';
+import { barrierBoxes, driveSurfaceHeight, quatPitch, SPAWN, trackFields } from './terrain';
 
 const GROUP_CAR = 0x0001;
 const GROUP_WORLD = 0x0002;
@@ -54,6 +55,8 @@ export interface DrivePose {
   wheels: WheelPose[];
   /** Hard hits during the crumple window after a jump, besides the landing itself. */
   extraHits: ContactPoint[];
+  looped: boolean;
+  stunt: StuntId;
 }
 
 export interface DebrisBody {
@@ -111,7 +114,15 @@ export class DriveWorld {
     contact: null,
     wheels: [0, 1, 2, 3].map(() => ({ x: 0, y: 0, z: 0, steer: 0, spin: 0, grounded: false })),
     extraHits: [],
+    looped: false,
+    stunt: 'launch',
   };
+
+  private stuntId: StuntId = 'launch';
+  private loopTheta = 0;
+  private loopActive = false;
+  private loopDone = false;
+  private boostCool = 0;
 
   static async create(): Promise<DriveWorld> {
     await RAPIER.init();
@@ -172,13 +183,23 @@ export class DriveWorld {
     }
 
     this.world.createCollider(
-      RAPIER.ColliderDesc.cuboid(48, 0.5, 130)
-        .setTranslation(0, -1.15, 80)
+      RAPIER.ColliderDesc.cuboid(120, 0.5, 150)
+        .setTranslation(78, -1.15, 60)
         .setFriction(0.85)
         .setRestitution(0.05)
         .setCollisionGroups(worldMask),
       ground,
     );
+
+    for (const ribbon of [loopRibbon(), quarterRibbon()]) {
+      this.world.createCollider(
+        RAPIER.ColliderDesc.trimesh(ribbon.vertices, ribbon.indices)
+          .setFriction(1.15)
+          .setRestitution(0.02)
+          .setCollisionGroups(worldMask),
+        ground,
+      );
+    }
 
     for (const box of barrierBoxes()) {
       const q = quatPitch(box.rotX);
@@ -297,11 +318,17 @@ export class DriveWorld {
     this.debris.length = 0;
   }
 
-  reset(): void {
+  reset(stuntId: StuntId = this.stuntId): void {
     this.clearDebris();
     this.hiddenWheels.clear();
     for (let i = 0; i < 4; i++) this.tuneWheel(i);
-    this.chassis.setTranslation({ x: SPAWN.x, y: SPAWN.y, z: SPAWN.z }, true);
+    const spawn = stuntById(stuntId).spawn;
+    this.stuntId = stuntById(stuntId).id;
+    this.loopTheta = 0;
+    this.loopActive = false;
+    this.loopDone = false;
+    this.boostCool = 0;
+    this.chassis.setTranslation({ x: spawn.x, y: spawn.y, z: spawn.z }, true);
     this.chassis.setRotation({ x: 0, y: 0, z: 0, w: 1 }, true);
     this.chassis.setLinvel({ x: 0, y: 0, z: 0 }, true);
     this.chassis.setAngvel({ x: 0, y: 0, z: 0 }, true);
@@ -310,7 +337,7 @@ export class DriveWorld {
     this.seenGround = false;
     this.wasAirborne = false;
     this.airTime = 0;
-    this.maxAirY = SPAWN.y;
+    this.maxAirY = spawn.y;
     this.peakFall = 0;
     this.crumpleWindow = 0;
   }
@@ -321,10 +348,12 @@ export class DriveWorld {
     const pz = pre.z;
 
     let steer = input.steer;
-    if (Math.abs(steer) < 0.15 && pz < 76 && Math.abs(px) > 1) {
-      const assist = Math.max(-0.28, Math.min(0.28, -px * 0.045));
+    const lane = laneCenter(px);
+    if (Math.abs(steer) < 0.15 && Math.abs(px - lane) > 0.8 && Math.abs(px - lane) < 8) {
+      const assist = Math.max(-0.28, Math.min(0.28, -(px - lane) * 0.05));
       steer += assist;
     }
+    if (this.boostCool > 0) this.boostCool = Math.max(0, this.boostCool - dt);
     const vel = this.chassis.linvel();
     const speedNow = Math.hypot(vel.x, vel.z);
     const steerScale = 1 - 0.55 * Math.min(speedNow / 26, 1);
@@ -338,7 +367,8 @@ export class DriveWorld {
 
     const frontDown = this.vehicle.wheelIsInContact(0) || this.vehicle.wheelIsInContact(1);
     const rearDown = this.vehicle.wheelIsInContact(2) || this.vehicle.wheelIsInContact(3);
-    let force = input.throttle > 0.2 && pz < 78 ? ENGINE_FORCE * Math.min(input.throttle, 1) : 0;
+    const onLaunch = Math.abs(px) < 14;
+    let force = input.throttle > 0.2 && !(onLaunch && pz >= 78) && speedNow < 32 ? ENGINE_FORCE * Math.min(input.throttle, 1) : 0;
     if (!frontDown) force *= 0.35;
     if (!rearDown && !frontDown) force *= 0.5;
     this.vehicle.setWheelEngineForce(0, 0);
@@ -350,8 +380,10 @@ export class DriveWorld {
     this.vehicle.setWheelBrake(2, 0);
     this.vehicle.setWheelBrake(3, 0);
 
+    this.applyBoost();
     this.vehicle.updateVehicle(dt, undefined, undefined, (collider) => !this.chassisHandles.has(collider.handle));
     this.world.step(this.queue);
+    this.guideLoop(dt, input.throttle);
 
     let hitForce = 0;
     this.queue.drainContactForceEvents((event) => {
@@ -392,7 +424,9 @@ export class DriveWorld {
     }
 
     if (wheelsOn > 0) this.seenGround = true;
-    const airborne = this.seenGround && wheelsOn === 0 && y > 1.55;
+    const groundY = driveSurfaceHeight(z, x);
+    const clearance = groundY === null ? y : y - groundY;
+    const airborne = this.seenGround && wheelsOn === 0 && clearance > 1.15 && !this.loopActive;
     if (airborne) {
       this.airTime += dt;
       if (-vy > this.peakFall) this.peakFall = -vy;
@@ -443,7 +477,7 @@ export class DriveWorld {
     pose.vx = vx;
     pose.vy = vy;
     pose.vz = vz;
-    pose.speed = Math.hypot(vx, vz);
+    pose.speed = Math.hypot(vx, vy, vz);
     pose.wheelsOn = wheelsOn;
     pose.airborne = airborne;
     pose.airTime = landed ? jumpAir : this.airTime;
@@ -452,7 +486,55 @@ export class DriveWorld {
     pose.fallSpeed = fallSpeed;
     pose.contact = contact ? { ...contact, force: Math.max(hitForce, fallSpeed * 800) } : null;
     pose.extraHits = extraHits;
+    pose.looped = this.loopDone;
+    pose.stunt = this.stuntId;
     return pose;
+  }
+
+  private applyBoost(): void {
+    if (this.boostCool > 0) return;
+    const t = this.chassis.translation();
+    const pad = BOOSTS.find((item) => Math.abs(t.x - item.x) < 4 && Math.abs(t.z - item.z) < item.length * 0.5);
+    if (!pad) return;
+    const vel = this.chassis.linvel();
+    this.chassis.setLinvel({ x: vel.x * 0.2, y: vel.y, z: Math.max(vel.z, 0) + pad.kick }, true);
+    this.boostCool = 0.85;
+  }
+
+  /** Keep a held throttle glued to the loop so a preschooler always gets around. */
+  private guideLoop(dt: number, throttle: number): void {
+    if (this.loopDone || this.stuntId !== 'loop' || throttle < 0.2) {
+      if (throttle < 0.2) this.loopActive = false;
+      return;
+    }
+    const t = this.chassis.translation();
+    const near = Math.abs(t.x - LOOP.laneX) < 5 && t.z > LOOP.zCenter - 6 && t.z < LOOP.zCenter + 1.5 && t.y < 2.4;
+    if (!this.loopActive && near && t.z > LOOP.zCenter - 1.6) this.loopActive = true;
+    if (!this.loopActive) return;
+
+    const speed = 15;
+    this.loopTheta += (speed / LOOP.radius) * dt;
+    if (this.loopTheta >= Math.PI * 2 - 0.2) {
+      this.loopActive = false;
+      this.loopDone = true;
+      const exitZ = LOOP.zCenter + LOOP.radius + 6;
+      this.chassis.setTranslation({ x: LOOP.laneX, y: 1.05, z: exitZ }, true);
+      this.chassis.setRotation({ x: 0, y: 0, z: 0, w: 1 }, true);
+      this.chassis.setLinvel({ x: 0, y: 0, z: 16 }, true);
+      this.chassis.setAngvel({ x: 0, y: 0, z: 0 }, true);
+      return;
+    }
+    const pose = loopPose(this.loopTheta, 0.92);
+    const rx = pose.up.y * pose.fwd.z - pose.up.z * pose.fwd.y;
+    const quat = quatFromBasis(
+      { x: rx, y: 0, z: 0 },
+      { x: 0, y: pose.up.y, z: pose.up.z },
+      { x: 0, y: pose.fwd.y, z: pose.fwd.z },
+    );
+    this.chassis.setTranslation({ x: pose.x, y: pose.y, z: pose.z }, true);
+    this.chassis.setRotation(quat, true);
+    this.chassis.setLinvel({ x: 0, y: pose.fwd.y * speed, z: pose.fwd.z * speed }, true);
+    this.chassis.setAngvel({ x: 0, y: 0, z: 0 }, true);
   }
 
   private lowestContact(): ContactPoint | null {
@@ -477,6 +559,54 @@ export class DriveWorld {
     }
     return best;
   }
+}
+
+function quatFromBasis(
+  right: { x: number; y: number; z: number },
+  up: { x: number; y: number; z: number },
+  fwd: { x: number; y: number; z: number },
+): { x: number; y: number; z: number; w: number } {
+  const m00 = right.x;
+  const m01 = up.x;
+  const m02 = fwd.x;
+  const m10 = right.y;
+  const m11 = up.y;
+  const m12 = fwd.y;
+  const m20 = right.z;
+  const m21 = up.z;
+  const m22 = fwd.z;
+  const trace = m00 + m11 + m22;
+  let x: number;
+  let y: number;
+  let z: number;
+  let w: number;
+  if (trace > 0) {
+    const s = Math.sqrt(trace + 1) * 2;
+    w = 0.25 * s;
+    x = (m21 - m12) / s;
+    y = (m02 - m20) / s;
+    z = (m10 - m01) / s;
+  } else if (m00 > m11 && m00 > m22) {
+    const s = Math.sqrt(1 + m00 - m11 - m22) * 2;
+    w = (m21 - m12) / s;
+    x = 0.25 * s;
+    y = (m01 + m10) / s;
+    z = (m02 + m20) / s;
+  } else if (m11 > m22) {
+    const s = Math.sqrt(1 + m11 - m00 - m22) * 2;
+    w = (m02 - m20) / s;
+    x = (m01 + m10) / s;
+    y = 0.25 * s;
+    z = (m12 + m21) / s;
+  } else {
+    const s = Math.sqrt(1 + m22 - m00 - m11) * 2;
+    w = (m10 - m01) / s;
+    x = (m02 + m20) / s;
+    y = (m12 + m21) / s;
+    z = 0.25 * s;
+  }
+  const len = Math.hypot(x, y, z, w) || 1;
+  return { x: x / len, y: y / len, z: z / len, w: w / len };
 }
 
 function rotateByQuat(qx: number, qy: number, qz: number, qw: number, vx: number, vy: number, vz: number): { x: number; y: number; z: number } {

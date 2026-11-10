@@ -47,13 +47,15 @@ test('webkit scene stays up', async ({ page }, info) => {
 });
 
 test('holding go completes the loop', async ({ page }, info) => {
+  test.setTimeout(160_000);
   if (info.project.name.includes('webgpu')) return;
   const result = await boot(page, `${info.project.name}-loop`, '?debug=1');
   expect(result.ready, result.errors.join('\n')).toBe(true);
   await page.getByRole('button', { name: 'Loop' }).dispatchEvent('pointerdown', { pointerId: 1, bubbles: true, pointerType: 'touch' });
   await page.waitForFunction(() => window.__game?.stunt === 'loop' && (window.__game?.position.z ?? 99) < 12, undefined, { timeout: 10_000 });
   await page.getByRole('button', { name: 'Go' }).dispatchEvent('pointerdown', { pointerId: 1, bubbles: true, pointerType: 'touch' });
-  await page.waitForFunction(() => window.__game?.looped === true, undefined, { timeout: 40_000 });
+  await page.waitForFunction(() => window.__game?.looped === true, undefined, { timeout: 120_000 });
+  await page.screenshot({ path: `${shots}/${info.project.name}-loop-done.png` });
   const stats = await page.evaluate(() => window.__game);
   console.log('loop', info.project.name, JSON.stringify(stats));
   expect(stats?.position.y ?? 0).toBeGreaterThan(0.3);

@@ -111,7 +111,7 @@ export class Game {
   private pose!: DrivePose;
   private stuntId: StuntId = 'launch';
   private stuntBase = SPAWN.y;
-  private faceCam = false;
+  private camMode: 'chase' | 'face' | 'side' = 'chase';
 
   constructor() {
     this.input = new Input((id) => this.selectCar(id), (id) => this.selectStunt(id));
@@ -205,7 +205,7 @@ export class Game {
     this.stats.dpr = this.quality.dpr;
     window.__game = this.stats;
     window.__frame = (mode: string) => {
-      this.faceCam = mode === 'face';
+      this.camMode = mode === 'face' || mode === 'side' ? mode : 'chase';
       this.snapCam = true;
     };
     if (new URLSearchParams(location.search).get('debug') === '1') this.showDebug();
@@ -536,9 +536,12 @@ export class Game {
 
   private followCamera(dt: number, pose: DrivePose): void {
     const yaw = Math.atan2(2 * (pose.qw * pose.qy + pose.qx * pose.qz), 1 - 2 * (pose.qy * pose.qy + pose.qz * pose.qz));
-    if (this.faceCam) {
-      this.desired.set(pose.x + Math.cos(yaw) * 1.7 + Math.sin(yaw) * 3.6, pose.y + 1.05, pose.z - Math.sin(yaw) * 1.7 + Math.cos(yaw) * 3.6);
-      this.lookTarget.set(pose.x, pose.y + 0.5, pose.z + Math.cos(yaw) * 0.2);
+    if (this.camMode === 'face') {
+      this.desired.set(pose.x + Math.cos(yaw) * 1.25 + Math.sin(yaw) * 2.7, pose.y + 0.22, pose.z - Math.sin(yaw) * 1.25 + Math.cos(yaw) * 2.7);
+      this.lookTarget.set(pose.x, pose.y + 0.02, pose.z + Math.cos(yaw) * 0.25);
+    } else if (this.camMode === 'side') {
+      this.desired.set(pose.x + Math.cos(yaw) * 3.35, pose.y + 0.15, pose.z - Math.sin(yaw) * 3.35);
+      this.lookTarget.set(pose.x, pose.y - 0.18, pose.z);
     } else {
     const air = pose.airborne ? 1 : 0;
     const dist = 7.3 + Math.min(pose.speed, 28) * 0.07 + air * 1.5;

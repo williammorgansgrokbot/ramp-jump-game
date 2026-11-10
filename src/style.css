@@ -16,7 +16,7 @@ html, body {
   position: fixed;
   inset: 0;
   width: 100%;
-  background: #8fd4ff;
+  background: #9aaeb7;
   touch-action: none;
   user-select: none;
   -webkit-user-select: none;
@@ -54,9 +54,9 @@ button {
   -webkit-user-select: none;
 }
 
-button svg { width: 58%; height: 58%; }
+button img { width: 100%; height: 100%; object-fit: contain; pointer-events: none; display: block; }
 
-button.down { transform: scale(0.94); filter: brightness(1.08); }
+button.down { transform: translateY(5px) scale(0.94); filter: brightness(0.92); }
 
 #stars {
   position: absolute;
@@ -72,12 +72,13 @@ button.down { transform: scale(0.94); filter: brightness(1.08); }
 }
 
 .star {
-  width: clamp(22px, 5vmin, 34px);
-  height: clamp(22px, 5vmin, 34px);
-  background: rgba(255, 255, 255, 0.55);
-  clip-path: polygon(50% 0%, 61% 35%, 98% 35%, 68% 57%, 79% 91%, 50% 70%, 21% 91%, 32% 57%, 2% 35%, 39% 35%);
+  width: clamp(26px, 6vmin, 40px);
+  height: clamp(26px, 6vmin, 40px);
+  opacity: 0.38;
+  filter: grayscale(1) brightness(1.4);
 }
-.star.on { background: #ffd60a; filter: drop-shadow(0 2px 0 rgba(180, 110, 0, 0.35)); }
+.star img { width: 100%; height: 100%; object-fit: contain; }
+.star.on { opacity: 1; filter: none; }
 
 #cars {
   position: absolute;
@@ -89,59 +90,26 @@ button.down { transform: scale(0.94); filter: brightness(1.08); }
 }
 
 #cars button {
-  width: clamp(46px, 10vmin, 64px);
-  height: clamp(46px, 10vmin, 64px);
-  border-radius: 18px;
-  background: linear-gradient(#fff, #f2f4f8);
-  box-shadow: 0 6px 0 rgba(20, 40, 70, 0.18), inset 0 0 0 3px white;
+  width: clamp(58px, 13vmin, 84px);
+  height: clamp(48px, 11vmin, 70px);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.28);
+  box-shadow: 0 4px 0 rgba(20, 40, 70, 0.18);
   position: relative;
 }
-#cars button i {
-  width: 70%;
-  height: 42%;
-  border-radius: 6px 6px 4px 4px;
-  background: var(--car, #ff3b30);
-  position: relative;
-  box-shadow: inset 0 6px 0 rgba(255,255,255,0.35);
-}
-#cars button i::before,
-#cars button i::after {
-  content: "";
-  position: absolute;
-  bottom: -6px;
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  background: #222;
-  box-shadow: inset 0 0 0 2px var(--accent, #ffd60a);
-}
-#cars button i::before { left: 2px; }
-#cars button i::after { right: 2px; }
-#cars button b {
-  position: absolute;
-  right: 4px;
-  top: 2px;
-  font-size: 14px;
-  color: #1c1c1e;
-}
-#cars button.selected { box-shadow: 0 6px 0 rgba(20, 40, 70, 0.18), inset 0 0 0 3px #ffd60a; }
+#cars button.selected { box-shadow: 0 0 0 3px #ffd60a, 0 4px 0 rgba(20, 40, 70, 0.18); }
 
 #tilt, #restart {
   position: absolute;
   top: var(--inset-t);
-  width: clamp(64px, 14vmin, 88px);
-  height: clamp(64px, 14vmin, 88px);
-  border-radius: 50%;
-  background: linear-gradient(#5ac8fa, #0a84ff);
-  box-shadow: 0 7px 0 #0757b0, inset 0 2px 0 rgba(255,255,255,0.5);
+  width: clamp(68px, 15vmin, 96px);
+  height: clamp(68px, 15vmin, 96px);
+  background: none;
+  box-shadow: none;
 }
-#restart {
-  right: var(--inset-r);
-  background: linear-gradient(#ffb340, #ff7a00);
-  box-shadow: 0 7px 0 #c45a00, inset 0 2px 0 rgba(255,255,255,0.45);
-}
-#tilt { right: calc(var(--inset-r) + clamp(72px, 16vmin, 100px)); }
-#tilt.on { background: linear-gradient(#7dffa1, #1fbf4a); box-shadow: 0 7px 0 #128a32, inset 0 2px 0 rgba(255,255,255,0.5); }
+#restart { right: var(--inset-r); }
+#tilt { right: calc(var(--inset-r) + clamp(76px, 17vmin, 108px)); }
+#tilt.on { filter: drop-shadow(0 0 6px #7dff9a); }
 #tilt.nope { animation: shake 0.4s linear; }
 
 #steer {
@@ -153,24 +121,20 @@ button.down { transform: scale(0.94); filter: brightness(1.08); }
   pointer-events: auto;
 }
 #left, #right {
-  width: clamp(78px, 18vmin, 116px);
-  height: clamp(78px, 18vmin, 116px);
-  border-radius: 28px;
-  background: linear-gradient(#ffe14a, #ffb800);
-  color: #5a3b00;
-  box-shadow: 0 8px 0 #d69200, inset 0 2px 0 rgba(255,255,255,0.65);
+  width: clamp(84px, 20vmin, 124px);
+  height: clamp(84px, 20vmin, 124px);
+  background: none;
+  box-shadow: none;
 }
 
 #go {
   position: absolute;
   right: var(--inset-r);
   bottom: var(--inset-b);
-  width: clamp(108px, 26vmin, 158px);
-  height: clamp(108px, 26vmin, 158px);
-  border-radius: 50%;
-  background: radial-gradient(circle at 35% 30%, #b8ff9a, #34d058 45%, #1faa42);
-  color: white;
-  box-shadow: 0 10px 0 #128a32, inset 0 3px 0 rgba(255,255,255,0.55);
+  width: clamp(112px, 28vmin, 168px);
+  height: clamp(112px, 28vmin, 168px);
+  background: none;
+  box-shadow: none;
   animation: pulse 1.6s ease-in-out infinite;
 }
 #go.down { animation: none; }
@@ -190,7 +154,7 @@ button.down { transform: scale(0.94); filter: brightness(1.08); }
   z-index: 5;
   display: grid;
   place-items: center;
-  background: linear-gradient(#8fd4ff, #fff1c9);
+  background: #9aaeb7;
 }
 #loading.hidden { display: none; }
 .loader-car {

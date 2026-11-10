@@ -96,6 +96,26 @@ button.down { transform: translateY(5px) scale(0.94); filter: brightness(0.92); 
 .star img { width: 100%; height: 100%; object-fit: contain; }
 .star.on { opacity: 1; filter: none; }
 
+#stunts {
+  position: absolute;
+  top: calc(var(--inset-t) + 52px);
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 8px;
+  pointer-events: auto;
+  z-index: 3;
+}
+#stunts button {
+  width: clamp(46px, 9vmin, 64px);
+  height: clamp(46px, 9vmin, 64px);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.38);
+  box-shadow: 0 4px 0 rgba(20, 40, 70, 0.18);
+}
+#stunts button.selected { box-shadow: 0 0 0 3px #ffd60a, 0 4px 0 rgba(20, 40, 70, 0.18); }
+#stunts svg { width: 78%; height: 78%; }
+
 #cars {
   position: absolute;
   top: var(--inset-t);
@@ -217,6 +237,7 @@ button.down { transform: translateY(5px) scale(0.94); filter: brightness(0.92); 
 }
 
 @media (orientation: portrait) {
+  #stunts { top: auto; bottom: var(--inset-b); }
   #steer { bottom: calc(var(--inset-b) + clamp(120px, 22vmin, 170px)); }
   #cars { flex-direction: column; }
   #stars { top: calc(var(--inset-t) + 8px); }

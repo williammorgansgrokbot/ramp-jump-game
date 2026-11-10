@@ -37,13 +37,27 @@ test('webkit scene stays up', async ({ page }, info) => {
   expect(result.stats?.physics).toBe('track');
   expect(result.errors, result.errors.join('\n')).toEqual([]);
 
-  if (!info.project.name.includes('webgpu')) {
+  if (!info.project.name.includes('webgpu') && !info.project.name.includes('loop')) {
     await page.getByRole('button', { name: 'Go' }).dispatchEvent('pointerdown', { pointerId: 1, bubbles: true, pointerType: 'touch' });
     await page.waitForFunction(() => (window.__game?.position.z ?? 0) > 12, undefined, { timeout: 15_000 });
     const moving = await page.evaluate(() => window.__game?.position.y ?? 0);
     expect(moving).toBeGreaterThan(0.3);
     await page.screenshot({ path: `${shots}/${info.project.name}-drive.png` });
   }
+});
+
+test('holding go completes the loop', async ({ page }, info) => {
+  if (info.project.name.includes('webgpu')) return;
+  const result = await boot(page, `${info.project.name}-loop`, '?debug=1');
+  expect(result.ready, result.errors.join('\n')).toBe(true);
+  await page.getByRole('button', { name: 'Loop' }).dispatchEvent('pointerdown', { pointerId: 1, bubbles: true, pointerType: 'touch' });
+  await page.waitForFunction(() => window.__game?.stunt === 'loop' && (window.__game?.position.z ?? 99) < 12, undefined, { timeout: 10_000 });
+  await page.getByRole('button', { name: 'Go' }).dispatchEvent('pointerdown', { pointerId: 1, bubbles: true, pointerType: 'touch' });
+  await page.waitForFunction(() => window.__game?.looped === true, undefined, { timeout: 40_000 });
+  const stats = await page.evaluate(() => window.__game);
+  console.log('loop', info.project.name, JSON.stringify(stats));
+  expect(stats?.position.y ?? 0).toBeGreaterThan(0.3);
+  expect(result.errors, result.errors.join('\n')).toEqual([]);
 });
 
 declare global {
@@ -55,6 +69,9 @@ declare global {
     dpr?: number;
     assets?: string;
     physics?: string;
+    stunt?: string;
+    looped?: boolean;
+    fps?: number;
   };
   }
 }

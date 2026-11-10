@@ -1,4 +1,5 @@
 import { enabledLaunch, RAMPS, type RampKind, type RampRecipe } from './catalog';
+import { GAP, LOOP, MEGA, QUARTER, gapLandHeight, gapRampHeight, megaLandHeight, megaRunHeight } from './stunts';
 
 /** Half-width of the driveable heightfield. Walls sit just inside this. */
 export const TRACK_HALF_WIDTH = 9;
@@ -71,20 +72,32 @@ export interface SurfaceGrid {
   samples: number;
   z0: number;
   z1: number;
+  /** Lane center. The original launch is x = 0. */
+  x: number;
+  /** Half-width of this deck. */
+  half: number;
   /** Height at each sample. The collider and the visual deck share this array. */
   heights: Float32Array;
 }
 
 let gridCache: SurfaceGrid[] | null = null;
 
-function buildGrid(id: string, z0: number, z1: number, nz: number, heightAt: (z: number) => number): SurfaceGrid {
+function buildGrid(
+  id: string,
+  z0: number,
+  z1: number,
+  nz: number,
+  heightAt: (z: number) => number,
+  x = 0,
+  half = TRACK_HALF_WIDTH,
+): SurfaceGrid {
   const samples = nz + 1;
   const heights = new Float32Array(samples);
   for (let iz = 0; iz < samples; iz++) {
     const z = z0 + (iz / nz) * (z1 - z0);
     heights[iz] = heightAt(z);
   }
-  return { id, samples, z0, z1, heights };
+  return { id, samples, z0, z1, x, half, heights };
 }
 
 /** Exact Z samples used by both the heightfield collider and the visible deck. */
@@ -92,23 +105,37 @@ export function surfaceGrids(): SurfaceGrid[] {
   if (gridCache) return gridCache;
   const launch = enabledLaunch();
   const lip = launch.z + launch.length;
+  const side = 8;
   gridCache = [
     buildGrid('runway-ramp', -4, lip + 4, 110, (z) => (z >= lip ? launchHeight(lip) : launchHeight(z))),
     buildGrid('landing', LANDING.z0, LANDING.z1, 60, landingHeight),
+    buildGrid('loop-approach', -4, LOOP.zCenter - 0.4, 40, () => 0, LOOP.laneX, side),
+    buildGrid('loop-exit', LOOP.zCenter + LOOP.radius + 2.4, LOOP.zCenter + 48, 36, () => 0, LOOP.laneX, side),
+    buildGrid('quarter-approach', -4, QUARTER.z0 - 0.3, 36, () => 0, QUARTER.laneX, side),
+    buildGrid('quarter-exit', QUARTER.z0 + QUARTER.radius + 4, QUARTER.z0 + 90, 40, () => 0, QUARTER.laneX, side),
+    buildGrid('gap-flat', -4, GAP.rampZ0, 24, () => 0, GAP.laneX, side),
+    buildGrid('gap-ramp', GAP.rampZ0, GAP.rampZ1, 28, gapRampHeight, GAP.laneX, side),
+    buildGrid('gap-land', GAP.landZ0, GAP.landZ1, 36, gapLandHeight, GAP.laneX, side),
+    buildGrid('mega-run', -2, MEGA.dropZ1, 48, megaRunHeight, MEGA.laneX, side),
+    buildGrid('mega-land', MEGA.landZ0, MEGA.landZ1, 40, megaLandHeight, MEGA.laneX, side),
   ];
   return gridCache;
 }
 
-/** Piecewise-linear drive-surface height. Null in the jump gap and off the ends. */
-export function driveSurfaceHeight(z: number): number | null {
+/** Piecewise-linear drive-surface height. Null in a jump gap and off the lanes. */
+export function driveSurfaceHeight(z: number, x = 0): number | null {
+  let best: { dist: number; y: number } | null = null;
   for (const grid of surfaceGrids()) {
     if (z < grid.z0 - 1e-3 || z > grid.z1 + 1e-3) continue;
+    const dist = Math.abs(x - grid.x);
+    if (dist > grid.half + 0.4) continue;
     const f = ((z - grid.z0) / (grid.z1 - grid.z0)) * (grid.samples - 1);
     const i = Math.min(grid.samples - 2, Math.max(0, Math.floor(f)));
     const u = f - i;
-    return grid.heights[i] * (1 - u) + grid.heights[i + 1] * u;
+    const y = grid.heights[i] * (1 - u) + grid.heights[i + 1] * u;
+    if (!best || dist < best.dist) best = { dist, y };
   }
-  return null;
+  return best ? best.y : null;
 }
 
 export interface HeightFieldSpec {
@@ -142,16 +169,18 @@ function makeField(grid: SurfaceGrid, friction: number, restitution: number): He
     nrows: nz,
     ncols: nx,
     heights,
-    scale: { x: TRACK_HALF_WIDTH * 2, y: 1, z: grid.z1 - grid.z0 },
-    translation: { x: 0, y: 0, z: (grid.z0 + grid.z1) / 2 },
+    scale: { x: grid.half * 2, y: 1, z: grid.z1 - grid.z0 },
+    translation: { x: grid.x, y: 0, z: (grid.z0 + grid.z1) / 2 },
     friction,
     restitution,
   };
 }
 
 export function trackFields(): HeightFieldSpec[] {
-  const [runway, landing] = surfaceGrids();
-  return [makeField(runway, 0.95, 0.02), makeField(landing, 0.8, 0.28)];
+  return surfaceGrids().map((grid) => {
+    const landing = grid.id === 'landing' || grid.id.endsWith('land');
+    return makeField(grid, landing ? 0.8 : 0.95, landing ? 0.28 : 0.02);
+  });
 }
 
 export interface BoxSpec {

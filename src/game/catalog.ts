@@ -9,13 +9,17 @@ export interface CarConfig {
   accent: string;
   roof: string;
   plate: string;
+  /** Shiny wheel face. Matches the ComfyUI sprite for that boy. */
+  rim: string;
+  /** Colored ring in the cartoon eye. */
+  iris: string;
 }
 
 export const CARS: CarConfig[] = [
-  { id: 'boy1', name: 'BOY 1', numeral: '1', body: '#ff3b30', accent: '#ffd60a', roof: '#fff7ea', plate: '#1c1c1e' },
-  { id: 'boy2', name: 'BOY 2', numeral: '2', body: '#0a84ff', accent: '#64d2ff', roof: '#f4fbff', plate: '#102033' },
-  { id: 'boy3', name: 'BOY 3', numeral: '3', body: '#30d158', accent: '#ffd60a', roof: '#f3fff6', plate: '#102816' },
-  { id: 'boy4', name: 'BOY 4', numeral: '4', body: '#ffd60a', accent: '#ff9f0a', roof: '#fff8e6', plate: '#3a2a08' },
+  { id: 'boy1', name: 'BOY 1', numeral: '1', body: '#ff3b30', accent: '#ffd60a', roof: '#fff7ea', plate: '#1c1c1e', rim: '#ff2d2d', iris: '#ffd60a' },
+  { id: 'boy2', name: 'BOY 2', numeral: '2', body: '#0a84ff', accent: '#64d2ff', roof: '#f4fbff', plate: '#102033', rim: '#f4f7fb', iris: '#64d2ff' },
+  { id: 'boy3', name: 'BOY 3', numeral: '3', body: '#30d158', accent: '#ffd60a', roof: '#f3fff6', plate: '#102816', rim: '#f4fbf6', iris: '#b6f25c' },
+  { id: 'boy4', name: 'BOY 4', numeral: '4', body: '#ffd60a', accent: '#ff9f0a', roof: '#fff8e6', plate: '#3a2a08', rim: '#fff4c2', iris: '#ff9f0a' },
 ];
 
 export function carById(id: string): CarConfig {
@@ -24,9 +28,8 @@ export function carById(id: string): CarConfig {
 
 /**
  * Track pieces. Phase 1 builds the enabled launch ramp.
- * Loop, quarter-pipe, gap, and mega stay disabled. Turning them on would retune
- * the launch that already clears the gap. The world draws a scenic quarter-pipe
- * and a pond under that gap without adding colliders.
+ * Each kind is a real course on its own lane. The original launch stays the
+ * first one so that jump does not get retuned.
  */
 export type RampKind = 'launch' | 'loop' | 'quarter-pipe' | 'gap' | 'mega';
 

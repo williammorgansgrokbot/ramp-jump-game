@@ -34,6 +34,16 @@ export class ToyCar {
   private readonly plateCanvas: HTMLCanvasElement;
   private readonly original: Float32Array;
   private readonly positionAttr: THREE.BufferAttribute;
+  private readonly eyeRoots: THREE.Group[] = [];
+  private readonly lids: THREE.Mesh[] = [];
+  private readonly irises: THREE.Mesh[] = [];
+  private readonly lidMat: THREE.MeshStandardMaterial;
+  private readonly irisMat: THREE.MeshStandardMaterial;
+  private blink = 2.4;
+  private blinkLeft = 0;
+  private dizzy = 0;
+  private squint = 0;
+  private wide = 0;
 
   constructor(config: CarConfig) {
     this.group.name = 'toy-car';
@@ -50,9 +60,11 @@ export class ToyCar {
     this.plateTex.anisotropy = 4;
     this.plateMat = new THREE.MeshStandardMaterial({ map: this.plateTex, roughness: 0.45, metalness: 0.05 });
 
-    const bodyGeo = new RoundedBoxGeometry(1.58, 0.54, 2.52, 5, 0.2);
+    this.lidMat = new THREE.MeshStandardMaterial({ color: config.body, roughness: 0.35, metalness: 0.05 });
+    this.irisMat = new THREE.MeshStandardMaterial({ color: config.iris, roughness: 0.3 });
+    const bodyGeo = sculptShell();
     this.body = new THREE.Mesh(bodyGeo, this.bodyMat);
-    this.body.position.y = 0.06;
+    this.body.position.set(0, 0, 0);
     this.body.castShadow = true;
     this.body.name = 'shell';
     this.group.add(this.body);
@@ -64,20 +76,20 @@ export class ToyCar {
     this.addChrome();
     this.addLights();
     this.paintPlate(config);
-    this.addPlate(0, 0.72, -0.12, 0.62, 0.28);
-    this.addPlate(0, 0.08, 1.36, 0.36, 0.16);
+    this.addPlate(0, 0.78, -0.02, 0.5, 0.22);
+    this.addSmile();
 
-    this.part('hood', box(1.22, 0.1, 0.72, this.bodyMat), new THREE.Vector3(0, 0.28, 0.92), 9, 1.6);
-    this.part('trunk', box(1.16, 0.08, 0.46, this.bodyMat), new THREE.Vector3(0, 0.28, -1.02), 11, 1.5);
-    this.part('bumper-front', bumper(true), new THREE.Vector3(0, -0.02, 1.28), 6, 1.5);
-    this.part('bumper-rear', bumper(false), new THREE.Vector3(0, -0.02, -1.26), 8, 1.45);
-    this.part('door-left', box(0.08, 0.3, 0.72, this.bodyMat), new THREE.Vector3(-0.76, 0.14, -0.05), 12, 1.3);
-    this.part('door-right', box(0.08, 0.3, 0.72, this.bodyMat), new THREE.Vector3(0.76, 0.14, -0.05), 12, 1.3);
-    this.part('spoiler', this.spoiler(), new THREE.Vector3(0, 0.46, -1.12), 7, 1.7);
+    this.part('hood', blister(0.62, 0.1, 0.38, this.bodyMat), new THREE.Vector3(0, 0.46, 0.62), 9, 1.6);
+    this.part('trunk', blister(1.05, 0.18, 0.48, this.bodyMat), new THREE.Vector3(0, 0.42, -0.82), 11, 1.5);
+    this.part('bumper-front', bumper(true), new THREE.Vector3(0, 0.14, 1.08), 6, 1.5);
+    this.part('bumper-rear', bumper(false), new THREE.Vector3(0, 0.1, -1.16), 8, 1.45);
+    this.part('door-left', blister(0.16, 0.32, 0.62, this.bodyMat), new THREE.Vector3(-0.7, 0.28, 0.02), 12, 1.3);
+    this.part('door-right', blister(0.16, 0.32, 0.62, this.bodyMat), new THREE.Vector3(0.7, 0.28, 0.02), 12, 1.3);
+    this.part('spoiler', this.spoiler(), new THREE.Vector3(0, 0.62, -1.02), 7, 1.7);
     this.part('antenna', this.antenna(), new THREE.Vector3(0.28, 0.95, -0.35), 4, 2.4);
 
     const tire = new THREE.MeshStandardMaterial({ color: 0x1a1a1e, roughness: 0.72, metalness: 0.05 });
-    const hub = new THREE.MeshPhysicalMaterial({ color: config.accent, metalness: 0.75, roughness: 0.22, clearcoat: 0.6 });
+    const hub = new THREE.MeshPhysicalMaterial({ color: config.rim, metalness: 0.82, roughness: 0.18, clearcoat: 0.7, envMapIntensity: 1.3 });
     const wheelPoints: Array<[number, number, number]> = [
       [-0.82, -0.2, 0.95],
       [0.82, -0.2, 0.95],
@@ -110,12 +122,45 @@ export class ToyCar {
     this.bodyMat.color.set(config.body);
     this.accentMat.color.set(config.accent);
     this.roofMat.color.set(config.roof);
+    this.lidMat.color.set(config.body);
+    this.irisMat.color.set(config.iris);
     this.paintPlate(config);
     for (const wheel of this.wheels) {
       const cap = wheel.getObjectByName('hub') as THREE.Mesh | undefined;
       const material = cap?.material;
-      if (material && !Array.isArray(material) && material instanceof THREE.MeshPhysicalMaterial) material.color.set(config.accent);
+      if (material && !Array.isArray(material) && material instanceof THREE.MeshPhysicalMaterial) material.color.set(config.rim);
     }
+  }
+
+  /** Windshield eyes follow the drive and react to jumps and crashes. */
+  updateFace(dt: number, mood: { steer: number; airborne: boolean; vy: number; crash: boolean }): void {
+    if (mood.crash) {
+      this.dizzy = 1.4;
+      this.squint = 0.7;
+    }
+    this.dizzy = Math.max(0, this.dizzy - dt);
+    this.squint = Math.max(0, this.squint - dt);
+    const wantWide = mood.airborne && mood.vy > -1 ? 1 : 0;
+    this.wide += (wantWide - this.wide) * Math.min(1, dt * 6);
+    this.blink -= dt;
+    if (this.blinkLeft > 0) this.blinkLeft = Math.max(0, this.blinkLeft - dt);
+    else if (this.blink <= 0) {
+      this.blinkLeft = 0.14;
+      this.blink = 2.6 + Math.random() * 2.2;
+    }
+    const blinkAmt = this.blinkLeft > 0 ? Math.sin((this.blinkLeft / 0.14) * Math.PI) : 0;
+      const lidClose = Math.min(1, blinkAmt * 0.9 + this.squint * 0.55);
+    const look = THREE.MathUtils.clamp(mood.steer * 0.45, -0.5, 0.5);
+    this.eyeRoots.forEach((eye, index) => {
+      const side = index === 0 ? -1 : 1;
+      eye.rotation.y = look + (this.dizzy > 0 ? Math.sin(this.dizzy * 18) * 0.5 : 0);
+      eye.rotation.x = (mood.airborne ? -0.18 : 0.04) + this.wide * -0.08;
+      eye.scale.setScalar(1 + this.wide * 0.12);
+      const lid = this.lids[index];
+      if (lid) lid.rotation.x = -1.15 + lidClose * 1.05;
+      const iris = this.irises[index];
+      if (iris) iris.rotation.z = this.dizzy > 0 ? this.dizzy * 14 * side : look * 0.4;
+    });
   }
 
   /** Push shell vertices inward near a point in the shell's local space. Returns vertices moved. */
@@ -164,42 +209,56 @@ export class ToyCar {
     this.dentCount = 0;
   }
 
+  private addSmile(): void {
+    const smile = new THREE.Mesh(
+      new THREE.TorusGeometry(0.1, 0.022, 8, 14, Math.PI),
+      new THREE.MeshStandardMaterial({ color: 0xfff8f4, roughness: 0.25 }),
+    );
+    smile.position.set(0, 0.22, 1.18);
+    this.group.add(smile);
+  }
+
   private addCabin(): void {
     const glass = new THREE.MeshPhysicalMaterial({
-      color: 0xbfefff,
-      roughness: 0.05,
+      color: 0xe7f7ff,
+      roughness: 0.04,
       metalness: 0,
       transparent: true,
-      opacity: 0.42,
-      envMapIntensity: 1.4,
+      opacity: 0.38,
+      envMapIntensity: 1.5,
       depthWrite: false,
     });
-    const cabin = new THREE.Mesh(new RoundedBoxGeometry(1.22, 0.42, 1.18, 2, 0.12), glass);
-    cabin.position.set(0, 0.4, -0.08);
-    cabin.castShadow = true;
+    const cabin = new THREE.Mesh(new THREE.SphereGeometry(0.52, 24, 16), glass);
+    cabin.scale.set(1.2, 0.78, 1.25);
+    cabin.position.set(0, 0.5, 0.02);
     this.group.add(cabin);
-    const roof = new THREE.Mesh(new RoundedBoxGeometry(1.08, 0.1, 0.92, 2, 0.06), this.roofMat);
-    roof.position.set(0, 0.62, -0.1);
-    roof.castShadow = true;
-    this.group.add(roof);
-    const pillarMat = new THREE.MeshStandardMaterial({ color: 0x22262e, roughness: 0.45, metalness: 0.2 });
-    for (const x of [-0.52, 0.52]) {
-      const pillar = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.32, 0.08), pillarMat);
-      pillar.position.set(x, 0.42, 0.42);
-      this.group.add(pillar);
-    }
   }
 
   private addEyes(): void {
-    const white = new THREE.MeshStandardMaterial({ color: 0xfffdf8, roughness: 0.32 });
-    const pupil = new THREE.MeshStandardMaterial({ color: 0x1a1a1e, roughness: 0.4 });
-    for (const x of [-0.24, 0.24]) {
-      const eye = new THREE.Mesh(new THREE.SphereGeometry(0.11, 14, 12), white);
-      eye.position.set(x, 0.48, 0.56);
-      const dot = new THREE.Mesh(new THREE.SphereGeometry(0.045, 10, 8), pupil);
-      dot.position.set(0, -0.01, 0.08);
-      eye.add(dot);
-      this.group.add(eye);
+    const white = new THREE.MeshStandardMaterial({ color: 0xfffdf8, roughness: 0.28 });
+    const pupilMat = new THREE.MeshStandardMaterial({ color: 0x141418, roughness: 0.35 });
+    const glintMat = new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xffffff, emissiveIntensity: 0.4 });
+    for (const x of [-0.22, 0.22]) {
+      const root = new THREE.Group();
+      root.position.set(x, 0.64, 0.48);
+      const sclera = new THREE.Mesh(new THREE.SphereGeometry(0.105, 18, 14), white);
+      sclera.scale.set(1.05, 1.22, 0.78);
+      const iris = new THREE.Mesh(new THREE.SphereGeometry(0.075, 14, 12), this.irisMat);
+      iris.position.z = 0.07;
+      iris.scale.z = 0.55;
+      const pupil = new THREE.Mesh(new THREE.SphereGeometry(0.04, 12, 10), pupilMat);
+      pupil.position.z = 0.1;
+      pupil.scale.z = 0.5;
+      const glint = new THREE.Mesh(new THREE.SphereGeometry(0.018, 8, 8), glintMat);
+      glint.position.set(0.03, 0.04, 0.12);
+      const lid = new THREE.Mesh(new THREE.SphereGeometry(0.12, 14, 8, 0, Math.PI * 2, 0, Math.PI * 0.42), this.lidMat);
+      lid.scale.set(1.05, 0.7, 0.55);
+      lid.position.set(0, 0.06, 0.02);
+      root.add(sclera, iris, pupil, glint, lid);
+      this.group.add(root);
+      this.eyeRoots.push(root);
+      this.lids.push(lid);
+      this.irises.push(iris);
     }
   }
 
@@ -210,10 +269,12 @@ export class ToyCar {
       roughness: 0.12,
       envMapIntensity: 1.5,
     });
-    const belt = new THREE.Mesh(new RoundedBoxGeometry(1.66, 0.07, 2.15, 3, 0.03), chrome);
-    belt.position.set(0, 0.16, 0.02);
-    belt.castShadow = true;
-    this.group.add(belt);
+    for (const x of [-1, 1]) {
+      const sill = new THREE.Mesh(new THREE.CapsuleGeometry(0.035, 1.15, 4, 8), chrome);
+      sill.rotation.x = Math.PI / 2;
+      sill.position.set(x * 0.62, 0.12, 0.05);
+      this.group.add(sill);
+    }
   }
 
   private addLights(): void {
@@ -231,8 +292,8 @@ export class ToyCar {
     });
     for (const x of [-0.46, 0.46]) {
       const lamp = new THREE.Mesh(new THREE.SphereGeometry(0.11, 14, 12), head);
-      lamp.scale.set(1.35, 0.82, 0.55);
-      lamp.position.set(x, 0.1, 1.28);
+      lamp.scale.set(1.05, 0.7, 0.45);
+      lamp.position.set(x, 0.28, 1.02);
       this.group.add(lamp);
       const rear = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.1, 0.05), tail);
       rear.position.set(x, 0.14, -1.2);
@@ -336,16 +397,92 @@ function box(w: number, h: number, d: number, material: THREE.Material): THREE.M
 
 function bumper(front: boolean): THREE.Mesh {
   const mesh = new THREE.Mesh(
-    new RoundedBoxGeometry(1.52, 0.18, 0.2, 2, 0.06),
-    new THREE.MeshStandardMaterial({ color: 0x2c313a, roughness: 0.55, metalness: 0.2 }),
+    new THREE.TorusGeometry(0.28, 0.055, 8, 14, Math.PI),
+    new THREE.MeshStandardMaterial({ color: 0x2a2e36, roughness: 0.4, metalness: 0.35 }),
   );
-  const stripe = new THREE.Mesh(
-    new THREE.BoxGeometry(1.2, 0.05, 0.04),
-    new THREE.MeshStandardMaterial({ color: front ? 0xffd60a : 0xff453a, roughness: 0.4, emissive: front ? 0x000000 : 0x440000, emissiveIntensity: 0.4 }),
-  );
-  stripe.position.z = front ? 0.09 : -0.09;
-  mesh.add(stripe);
+  mesh.rotation.x = Math.PI / 2;
+  if (front) {
+    const smile = new THREE.Mesh(
+      new THREE.TorusGeometry(0.11, 0.026, 8, 12, Math.PI),
+      new THREE.MeshStandardMaterial({ color: 0xfff8f4, roughness: 0.28 }),
+    );
+    smile.rotation.x = Math.PI;
+    smile.position.set(0, 0.16, 0.04);
+    mesh.add(smile);
+  }
   return mesh;
+}
+
+function blister(w: number, h: number, d: number, material: THREE.Material): THREE.Mesh {
+  const mesh = new THREE.Mesh(new THREE.SphereGeometry(0.5, 18, 14), material);
+  mesh.scale.set(w, h, d);
+  mesh.castShadow = true;
+  return mesh;
+}
+
+/** Smooth sports-car shell: lofted squircle sections, with fenders over the wheels. */
+function sculptShell(): THREE.BufferGeometry {
+  const stations: Array<[number, number, number, number]> = [
+    [-1.28, 0.32, 0.1, 0.3],
+    [-1.05, 0.58, 0.02, 0.46],
+    [-0.78, 0.72, -0.04, 0.52],
+    [-0.4, 0.64, 0.08, 0.8],
+    [0.05, 0.62, 0.1, 0.86],
+    [0.4, 0.66, 0.04, 0.6],
+    [0.74, 0.74, -0.02, 0.46],
+    [1.05, 0.52, 0.06, 0.34],
+    [1.34, 0.26, 0.12, 0.26],
+  ];
+  const zCount = 26;
+  const aCount = 18;
+  const positions: number[] = [];
+  const sample = (z: number) => {
+    let i = 0;
+    while (i < stations.length - 2 && z > stations[i + 1][0]) i += 1;
+    const a = stations[i];
+    const b = stations[i + 1];
+    const t = Math.min(1, Math.max(0, (z - a[0]) / (b[0] - a[0] || 1)));
+    const s = t * t * (3 - 2 * t);
+    return {
+      hw: a[1] + (b[1] - a[1]) * s,
+      y0: a[2] + (b[2] - a[2]) * s,
+      y1: a[3] + (b[3] - a[3]) * s,
+    };
+  };
+  for (let iz = 0; iz <= zCount; iz++) {
+    const z = -1.28 + (iz / zCount) * 2.62;
+    const { hw, y0, y1 } = sample(z);
+    const mid = (y0 + y1) / 2;
+    const halfH = (y1 - y0) / 2;
+    for (let ia = 0; ia <= aCount; ia++) {
+      const ang = (ia / aCount) * Math.PI * 2;
+      const c = Math.cos(ang);
+      const s = Math.sin(ang);
+      const p = 2.35;
+      const sx = Math.sign(s) * Math.abs(s) ** (2 / p);
+      const sy = Math.sign(c) * Math.abs(c) ** (2 / p);
+      let x = sx * hw;
+      let y = mid + sy * halfH;
+      const side = Math.abs(s) ** 1.3;
+      const fender = Math.exp(-((z - 0.74) ** 2) / 0.08) + Math.exp(-((z + 0.8) ** 2) / 0.09);
+      x += Math.sign(s || 1) * fender * side * 0.08;
+      y -= fender * side * 0.22;
+      positions.push(x, y, z);
+    }
+  }
+  const row = aCount + 1;
+  const indices: number[] = [];
+  for (let iz = 0; iz < zCount; iz++) {
+    for (let ia = 0; ia < aCount; ia++) {
+      const a = iz * row + ia;
+      indices.push(a, a + row, a + 1, a + 1, a + row, a + row + 1);
+    }
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geo.setIndex(indices);
+  geo.computeVertexNormals();
+  return geo;
 }
 
 const VISUAL_TIRE = 0.38;

@@ -18,9 +18,11 @@ export class Input {
   tiltOn = false;
   private tiltSteer = 0;
   private readonly onSelect: (id: string) => void;
+  private readonly onStunt: (id: string) => void;
 
-  constructor(onSelect: (id: string) => void) {
+  constructor(onSelect: (id: string) => void, onStunt: (id: string) => void) {
     this.onSelect = onSelect;
+    this.onStunt = onStunt;
   }
 
   attach(unlock: () => void): void {
@@ -74,6 +76,14 @@ export class Input {
         unlock();
         const id = button.dataset.car;
         if (id) this.onSelect(id);
+      });
+    });
+    document.querySelectorAll<HTMLButtonElement>('[data-stunt]').forEach((button) => {
+      button.addEventListener('pointerdown', (event) => {
+        event.preventDefault();
+        unlock();
+        const id = button.dataset.stunt;
+        if (id) this.onStunt(id);
       });
     });
 

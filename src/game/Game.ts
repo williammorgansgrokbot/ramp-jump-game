@@ -10,7 +10,7 @@ import { Particles } from './particles';
 import { DriveWorld, type ContactPoint, type DrivePose } from './physics';
 import { initialQuality, isIOS, stepDown, type Quality } from './quality';
 import { stuntById, type StuntId } from './stunts';
-import { driveSurfaceHeight, SPAWN } from './terrain';
+import { driveSurfaceHeight, FIELD, SPAWN } from './terrain';
 import { HORIZON, SKY_TINT, SUN_DIR, buildWorld, type WorldView } from './worldMesh';
 
 export interface GameStats {
@@ -98,6 +98,7 @@ export class Game {
   private prevVy = 0;
   private wasAir = false;
   private shakeAmp = 0;
+  private invertTime = 0;
   private speedEl: HTMLElement | null = null;
   private contact: THREE.Mesh | null = null;
   private readonly look = new THREE.Vector3();
@@ -132,7 +133,7 @@ export class Game {
     this.renderer.setClearColor(HORIZON, 1);
 
     this.scene = new THREE.Scene();
-    this.scene.fog = new THREE.Fog(HORIZON, 95, 260);
+    this.scene.fog = new THREE.Fog(HORIZON, 70, 210);
     this.scene.environmentIntensity = 0.72;
     this.camera = new THREE.PerspectiveCamera(58, 1, 0.15, 500);
     this.camera.position.set(0, 4.5, -6);
@@ -472,6 +473,8 @@ export class Game {
     this.loose = [];
     this.drive.reset(this.stuntId);
     this.drive.settle();
+    this.invertTime = 0;
+    this.stuck = 0;
     this.car.resetDamage();
     const spawn = stuntById(this.stuntId).spawn;
     this.stuntBase = spawn.y;
@@ -572,8 +575,11 @@ export class Game {
       this.camera.position.y += (Math.random() - 0.5) * this.shakeAmp * 0.55;
       this.shakeAmp = Math.max(0, this.shakeAmp - dt * 1.15);
     }
-    const ground = driveSurfaceHeight(this.camera.position.z, this.camera.position.x);
-    if (ground !== null && this.camera.position.y < ground + 0.55) this.camera.position.y = ground + 0.55;
+    const deck = driveSurfaceHeight(this.camera.position.z, this.camera.position.x);
+    const surface = deck === null ? FIELD.floorY : Math.max(deck, FIELD.floorY);
+    const minY = surface + 0.9;
+    if (this.camera.position.y < minY) this.camera.position.y = minY;
+    if (this.look.y < surface + 0.4) this.look.y = surface + 0.4;
     this.camera.lookAt(this.look);
     this.placeContact(pose);
     const fov = 58 + Math.min(pose.speed, 32) * 0.42;
@@ -618,10 +624,20 @@ export class Game {
   }
 
   private watchStuck(dt: number, pose: DrivePose): void {
+    if (pose.rescue) {
+      this.restart();
+      return;
+    }
     const upright = 1 - 2 * (pose.qx * pose.qx + pose.qz * pose.qz);
-    const belly = pose.wheelsOn === 0 && pose.speed < 0.7 && pose.y < 1.2 && !pose.airborne && pose.z > 8;
-    const flipped = upright < 0.25 && pose.speed < 1.4 && !pose.airborne && pose.z > 8;
-    if (belly || flipped) {
+    const guided = this.drive.isLooping();
+    if (upright < 0.2 && !guided) this.invertTime += dt;
+    else this.invertTime = 0;
+    if (this.invertTime > 2) {
+      this.restart();
+      return;
+    }
+    const belly = pose.wheelsOn === 0 && pose.speed < 0.7 && pose.y < 1.2 && !pose.airborne && pose.z > 8 && !guided;
+    if (belly) {
       this.stuck += dt;
       if (this.stuck > 1.7) this.restart();
     } else this.stuck = 0;

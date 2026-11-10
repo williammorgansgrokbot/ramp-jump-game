@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type { FieldArt } from './fieldArt';
 import { BOOSTS, GAP, LOOP, loopRibbon, quarterRibbon } from './stunts';
+import { FIELD } from './terrain';
 
 /** Loop, quarter-pipe, pond, and glowing boost arrows. Colliders live in the physics world. */
 export function buildStuntExtras(wood: THREE.Texture | null, art: FieldArt | null = null): THREE.Group {
@@ -152,8 +153,8 @@ function gapPond(): THREE.Group {
   );
   water.rotation.x = -Math.PI / 2;
   const z = (GAP.rampZ1 + GAP.landZ0) / 2;
-  shore.position.set(GAP.laneX, -0.42, z);
-  water.position.set(GAP.laneX, -0.36, z);
+  shore.position.set(GAP.laneX, FIELD.floorY + 0.04, z);
+  water.position.set(GAP.laneX, FIELD.floorY + 0.1, z);
   group.add(shore, water);
   return group;
 }

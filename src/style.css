@@ -237,10 +237,40 @@ button.down { transform: translateY(5px) scale(0.94); filter: brightness(0.92); 
 }
 
 @media (orientation: portrait) {
-  #stunts { top: auto; bottom: var(--inset-b); }
-  #steer { bottom: calc(var(--inset-b) + clamp(120px, 22vmin, 170px)); }
-  #cars { flex-direction: column; }
-  #stars { top: calc(var(--inset-t) + 8px); }
+  #stars {
+    top: var(--inset-t);
+    left: calc(var(--inset-l) + 4px);
+    transform: none;
+    gap: 4px;
+    padding: 4px 8px;
+  }
+  .star { width: 22px; height: 22px; }
+  #tilt, #restart {
+    top: var(--inset-t);
+    width: 52px;
+    height: 52px;
+  }
+  #restart { right: var(--inset-r); }
+  #tilt { right: calc(var(--inset-r) + 58px); }
+  #cars {
+    top: calc(var(--inset-t) + 58px);
+    flex-direction: column;
+    gap: 6px;
+  }
+  #cars button { width: 54px; height: 44px; }
+  #stunts {
+    top: auto;
+    bottom: calc(var(--inset-b) + 108px);
+    gap: 6px;
+  }
+  #stunts button { width: 44px; height: 44px; border-radius: 12px; }
+  #steer { bottom: var(--inset-b); }
+  #left, #right { width: 68px; height: 68px; }
+  #go {
+    bottom: var(--inset-b);
+    width: 92px;
+    height: 92px;
+  }
 }
 @media (max-height: 420px) {
   #cars button { width: 42px; height: 42px; border-radius: 12px; }

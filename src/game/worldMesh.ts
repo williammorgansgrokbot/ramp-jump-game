@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { barrierBoxes, launchHeight, surfaceGrids, TRACK_HALF_WIDTH, type SurfaceGrid } from './terrain';
+import { barrierBoxes, FIELD, launchHeight, surfaceGrids, TRACK_HALF_WIDTH, type SurfaceGrid } from './terrain';
 import { LOOP, QUARTER, GAP, MEGA } from './stunts';
 import { buildStuntExtras } from './stuntMesh';
 import { deckRole, dressDeck, dressGround, loadFieldArt, scatterField, type FieldArt } from './fieldArt';
@@ -40,8 +40,7 @@ export async function buildWorld(scene: THREE.Scene, renderer: THREE.WebGLRender
   const base = import.meta.env.BASE_URL;
   const aniso = Math.min(16, Number.isFinite(opts.anisotropy) ? opts.anisotropy : 4);
   const field = await loadFieldArt(base, opts.hiTex, aniso).catch(() => null);
-  const [pano, grass, sand, asphalt, dirt, wood, trees, treeMeta] = await Promise.all([
-    loadTexture(`${base}art/${opts.hiPano ? 'pano_sea_4096x2048.webp' : 'pano_sea_2048x1024.webp'}`, aniso, false),
+  const [grass, sand, asphalt, dirt, wood, trees, treeMeta] = await Promise.all([
     loadTexture(`${base}art/textures/tex_grass.webp`, aniso, true),
     loadTexture(`${base}art/textures/tex_sand.webp`, aniso, true),
     loadTexture(`${base}art/textures/tex_asphalt.webp`, aniso, true),
@@ -51,18 +50,16 @@ export async function buildWorld(scene: THREE.Scene, renderer: THREE.WebGLRender
     fetch(`${base}art/trees.json`).then((res) => (res.ok ? res.json() as Promise<TreeMeta[]> : [])).catch(() => [] as TreeMeta[]),
   ]);
 
-  if (pano) {
-    pano.mapping = THREE.EquirectangularReflectionMapping;
-    pano.colorSpace = THREE.SRGBColorSpace;
-    scene.background = pano;
-    try {
-      const pmrem = new THREE.PMREMGenerator(renderer);
-      scene.environment = pmrem.fromEquirectangular(pano).texture;
-      scene.environmentIntensity = 0.72;
-      pmrem.dispose();
-    } catch (err) {
-      console.info('Environment map skipped', err);
-    }
+  scene.add(paintedSky());
+  try {
+    const pmrem = new THREE.PMREMGenerator(renderer);
+    const env = skyEnvironmentMap();
+    scene.environment = pmrem.fromEquirectangular(env).texture;
+    scene.environmentIntensity = 0.72;
+    env.dispose();
+    pmrem.dispose();
+  } catch (err) {
+    console.info('Environment map skipped', err);
   }
 
   const [runway, landing] = surfaceGrids();
@@ -87,6 +84,8 @@ export async function buildWorld(scene: THREE.Scene, renderer: THREE.WebGLRender
   scene.add(extras);
   if (field) scatterField(scene, field, opts.propLevel);
   else if (opts.tuftCount > 0) scene.add(grassTufts(opts.tuftCount));
+  scene.add(horizonHills());
+  scene.add(fieldHedges());
   if (trees && treeMeta.length > 0) {
     const sprites = scatterTrees(trees, treeMeta, opts.treeCount);
     scene.add(sprites.shadows, sprites.foliage);
@@ -100,6 +99,113 @@ export async function buildWorld(scene: THREE.Scene, renderer: THREE.WebGLRender
       });
     },
   };
+}
+
+/** Sky only. The lower hemisphere is the horizon color, so looking down never shows a photo of water or grass. */
+function paintedSky(): THREE.Mesh {
+  const geo = new THREE.SphereGeometry(800, 28, 16);
+  const mat = new THREE.ShaderMaterial({
+    side: THREE.BackSide,
+    depthWrite: false,
+    fog: false,
+    uniforms: {
+      horizon: { value: HORIZON.clone() },
+      zenith: { value: new THREE.Color(0.45, 0.68, 0.9) },
+    },
+    vertexShader: `
+      varying vec3 vDir;
+      void main() {
+        vec4 world = modelMatrix * vec4(position, 1.0);
+        vDir = world.xyz;
+        gl_Position = projectionMatrix * viewMatrix * world;
+      }
+    `,
+    fragmentShader: `
+      varying vec3 vDir;
+      uniform vec3 horizon;
+      uniform vec3 zenith;
+      void main() {
+        vec3 dir = normalize(vDir - cameraPosition);
+        float h = dir.y;
+        float lift = smoothstep(0.0, 0.7, max(h, 0.0));
+        vec3 col = mix(horizon, zenith, lift);
+        float puff = sin(dir.x * 8.0 + dir.z * 2.4) * sin(dir.z * 6.5 - dir.x * 1.7);
+        float cloud = smoothstep(0.25, 0.82, puff) * smoothstep(0.04, 0.2, h) * (1.0 - smoothstep(0.55, 0.92, h));
+        col = mix(col, vec3(0.97, 0.98, 0.99), cloud * 0.72);
+        if (h < 0.0) col = horizon;
+        gl_FragColor = vec4(col, 1.0);
+      }
+    `,
+  });
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.frustumCulled = false;
+  mesh.renderOrder = -1;
+  return mesh;
+}
+
+function skyEnvironmentMap(): THREE.Texture {
+  const canvas = document.createElement('canvas');
+  canvas.width = 512;
+  canvas.height = 256;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return blankTex();
+  const sky = ctx.createLinearGradient(0, 0, 0, 256);
+  sky.addColorStop(0, '#73b4ea');
+  sky.addColorStop(0.38, '#d5e6f2');
+  sky.addColorStop(0.5, '#9aaeb7');
+  sky.addColorStop(1, '#9aaeb7');
+  ctx.fillStyle = sky;
+  ctx.fillRect(0, 0, 512, 256);
+  ctx.fillStyle = 'rgba(255,255,255,0.85)';
+  for (const [x, y, w] of [[40, 40, 70], [180, 28, 90], [320, 48, 60], [430, 22, 50]] as const) {
+    ctx.beginPath();
+    ctx.ellipse(x, y, w, 16, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.mapping = THREE.EquirectangularReflectionMapping;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.needsUpdate = true;
+  return tex;
+}
+
+function horizonHills(): THREE.Group {
+  const group = new THREE.Group();
+  const mat = new THREE.MeshStandardMaterial({ color: 0x7ea36a, roughness: 1 });
+  const rand = mulberry32(0x411);
+  for (let i = 0; i < 26; i++) {
+    const angle = (i / 26) * Math.PI * 2 + rand() * 0.1;
+    const radius = 145 + rand() * 35;
+    const height = 6 + rand() * 11;
+    const hill = new THREE.Mesh(new THREE.SphereGeometry(height, 10, 7), mat);
+    hill.scale.y = 0.42;
+    hill.position.set(Math.cos(angle) * radius + 50, GRASS_Y + height * 0.18, Math.sin(angle) * radius + 50);
+    group.add(hill);
+  }
+  return group;
+}
+
+function fieldHedges(): THREE.Group {
+  const group = new THREE.Group();
+  const mat = new THREE.MeshStandardMaterial({ color: 0x2f7d3a, roughness: 0.9 });
+  const spanX = FIELD.maxX - FIELD.minX;
+  const spanZ = FIELD.maxZ - FIELD.minZ;
+  const midX = (FIELD.minX + FIELD.maxX) / 2;
+  const midZ = (FIELD.minZ + FIELD.maxZ) / 2;
+  const hedges = [
+    { x: midX, z: FIELD.minZ + 1.2, w: spanX, d: 1.4 },
+    { x: midX, z: FIELD.maxZ - 1.2, w: spanX, d: 1.4 },
+    { x: FIELD.minX + 1.2, z: midZ, w: 1.4, d: spanZ },
+    { x: FIELD.maxX - 1.2, z: midZ, w: 1.4, d: spanZ },
+  ];
+  for (const hedge of hedges) {
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(hedge.w, 1.5, hedge.d), mat);
+    mesh.position.set(hedge.x, GRASS_Y + 0.75, hedge.z);
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    group.add(mesh);
+  }
+  return group;
 }
 
 function loadTexture(url: string, anisotropy: number, repeat: boolean): Promise<THREE.Texture | null> {
@@ -124,7 +230,7 @@ function loadTexture(url: string, anisotropy: number, repeat: boolean): Promise<
   });
 }
 
-const GRASS_Y = -0.55;
+const GRASS_Y = FIELD.floorY;
 const SKIRT = 0.62;
 
 function blankTex(): THREE.Texture {
@@ -135,7 +241,7 @@ function blankTex(): THREE.Texture {
 }
 
 function ground(grass: THREE.Texture | null, sand: THREE.Texture | null, dirt: THREE.Texture | null, art: FieldArt | null): THREE.Mesh {
-  const geo = new THREE.PlaneGeometry(560, 560, 48, 48);
+  const geo = new THREE.PlaneGeometry(2200, 2200, 40, 40);
   geo.rotateX(-Math.PI / 2);
   const uv = geo.attributes.uv as THREE.BufferAttribute;
   const pos = geo.attributes.position;
@@ -145,6 +251,7 @@ function ground(grass: THREE.Texture | null, sand: THREE.Texture | null, dirt: T
     color: grass ? 0xffffff : 0x3f9a45,
     roughness: 0.96,
     metalness: 0,
+    side: THREE.DoubleSide,
   });
   material.onBeforeCompile = (shader) => {
     if (!art) {
@@ -188,6 +295,7 @@ function ground(grass: THREE.Texture | null, sand: THREE.Texture | null, dirt: T
   const mesh = new THREE.Mesh(geo, material);
   mesh.position.y = GRASS_Y;
   mesh.receiveShadow = true;
+  mesh.frustumCulled = false;
   return mesh;
 }
 
@@ -517,13 +625,13 @@ function pond(sand: THREE.Texture | null): THREE.Group {
     new THREE.MeshStandardMaterial({ map: sand ?? undefined, color: sand ? 0xffffff : 0xd8c39a, roughness: 0.95 }),
   );
   shore.rotation.x = -Math.PI / 2;
-  shore.position.set(0, -0.48, 88);
+  shore.position.set(0, GRASS_Y + 0.02, 88);
   const water = new THREE.Mesh(
     new THREE.CircleGeometry(7.2, 28),
     new THREE.MeshStandardMaterial({ color: 0x3aa4c8, roughness: 0.12, metalness: 0.18, transparent: true, opacity: 0.88 }),
   );
   water.rotation.x = -Math.PI / 2;
-  water.position.set(0, -0.42, 88);
+  water.position.set(0, GRASS_Y + 0.08, 88);
   group.add(shore, water);
   return group;
 }

@@ -1,7 +1,7 @@
 import RAPIER from '@dimforge/rapier3d-compat';
 import { BOOSTS, LOOP, QUARTER, loopPose, loopRibbon, quarterRibbon, laneCenter, stuntById, type StuntId } from './stunts';
 import { axlesFor, restLength, type Axle } from './carFit';
-import { barrierBoxes, driveSurfaceHeight, quatPitch, SPAWN, trackFields } from './terrain';
+import { barrierBoxes, driveSurfaceHeight, FIELD, quatPitch, SPAWN, trackFields } from './terrain';
 
 const GROUP_CAR = 0x0001;
 const GROUP_WORLD = 0x0002;
@@ -59,6 +59,8 @@ export interface DrivePose {
   extraHits: ContactPoint[];
   looped: boolean;
   stunt: StuntId;
+  /** The car fell through the world or left the field. The game should respawn it. */
+  rescue: boolean;
 }
 
 export interface DebrisBody {
@@ -115,6 +117,7 @@ export class DriveWorld {
     extraHits: [],
     looped: false,
     stunt: 'launch',
+    rescue: false,
   };
 
   private stuntId: StuntId = 'launch';
@@ -150,6 +153,11 @@ export class DriveWorld {
     this.world.step();
   }
 
+  /** True while the held-throttle loop guide is carrying the car over the top. */
+  isLooping(): boolean {
+    return this.loopActive;
+  }
+
   /** Drop the car onto its suspension before the first paint, then forget that drop. */
   settle(): void {
     for (let i = 0; i < 30; i++) this.step(1 / 60, { throttle: 0, steer: 0 });
@@ -181,14 +189,37 @@ export class DriveWorld {
       );
     }
 
+    // One solid floor under the whole field, including the pond gaps and the grass past every lane.
+    const floorHalf = 2;
     this.world.createCollider(
-      RAPIER.ColliderDesc.cuboid(120, 0.5, 150)
-        .setTranslation(78, -1.15, 60)
-        .setFriction(0.85)
-        .setRestitution(0.05)
+      RAPIER.ColliderDesc.cuboid(900, floorHalf, 900)
+        .setTranslation(80, FIELD.floorY - floorHalf, 70)
+        .setFriction(0.9)
+        .setRestitution(0.02)
         .setCollisionGroups(worldMask),
       ground,
     );
+    const spanX = (FIELD.maxX - FIELD.minX) / 2;
+    const spanZ = (FIELD.maxZ - FIELD.minZ) / 2;
+    const midX = (FIELD.minX + FIELD.maxX) / 2;
+    const midZ = (FIELD.minZ + FIELD.maxZ) / 2;
+    const wallY = 24;
+    const walls = [
+      { x: midX, z: FIELD.minZ, hx: spanX + 3, hz: 2 },
+      { x: midX, z: FIELD.maxZ, hx: spanX + 3, hz: 2 },
+      { x: FIELD.minX, z: midZ, hx: 2, hz: spanZ + 3 },
+      { x: FIELD.maxX, z: midZ, hx: 2, hz: spanZ + 3 },
+    ];
+    for (const wall of walls) {
+      this.world.createCollider(
+        RAPIER.ColliderDesc.cuboid(wall.hx, wallY, wall.hz)
+          .setTranslation(wall.x, wallY, wall.z)
+          .setFriction(0.4)
+          .setRestitution(0.04)
+          .setCollisionGroups(worldMask),
+        ground,
+      );
+    }
 
     for (const ribbon of [loopRibbon(), quarterRibbon()]) {
       this.world.createCollider(
@@ -497,6 +528,7 @@ export class DriveWorld {
     pose.extraHits = extraHits;
     pose.looped = this.loopDone;
     pose.stunt = this.stuntId;
+    pose.rescue = y < FIELD.floorY - 2 || x < FIELD.minX - 8 || x > FIELD.maxX + 8 || z < FIELD.minZ - 8 || z > FIELD.maxZ + 8;
     return pose;
   }
 

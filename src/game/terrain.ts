@@ -4,6 +4,18 @@ import { GAP, LOOP, MEGA, QUARTER, gapLandHeight, gapRampHeight, megaLandHeight,
 /** Half-width of the driveable heightfield. Walls sit just inside this. */
 export const TRACK_HALF_WIDTH = 9;
 
+/**
+ * The grass and its collider cover far past these walls. The walls stop a car
+ * from driving out of the play field; anything that still falls through respawns.
+ */
+export const FIELD = {
+  floorY: -0.08,
+  minX: -26,
+  maxX: 190,
+  minZ: -20,
+  maxZ: 236,
+};
+
 export const SPAWN = { x: 0, y: 1.28, z: 4 };
 
 export const LANDING = { z0: 100, z1: 160 };

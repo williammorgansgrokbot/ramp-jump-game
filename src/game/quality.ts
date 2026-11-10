@@ -5,8 +5,6 @@ export interface Quality {
   bloom: boolean;
   antialias: boolean;
   particles: number;
-  /** Desktop uses the 4096 panorama. Phones and low quality use 2048. */
-  hiPano: boolean;
   treeCount: number;
 }
 
@@ -16,23 +14,20 @@ export function initialQuality(): Quality {
   const touch = window.matchMedia('(pointer: coarse)').matches;
   const mobile = touch || /iPhone|iPad|Android/i.test(navigator.userAgent) || isIOS();
   const native = window.devicePixelRatio || 1;
-  const hiPano = !mobile;
   const dpr = phoneDpr(native, mobile);
   if (mobile && (memory <= 2 || cores <= 2)) {
-    return { level: 'low', dpr, shadowMap: 512, bloom: false, antialias: false, particles: 40, hiPano, treeCount: 46 };
+    return { level: 'low', dpr, shadowMap: 512, bloom: false, antialias: false, particles: 40, treeCount: 46 };
   }
   if (mobile) {
-    return { level: 'medium', dpr, shadowMap: 1024, bloom: true, antialias: true, particles: 80, hiPano, treeCount: 84 };
+    return { level: 'medium', dpr, shadowMap: 512, bloom: false, antialias: true, particles: 80, treeCount: 84 };
   }
-  return { level: 'high', dpr: Math.min(1.75, Math.max(native, 1)), shadowMap: 2048, bloom: true, antialias: true, particles: 140, hiPano, treeCount: 120 };
+  return { level: 'high', dpr: Math.min(1.75, Math.max(native, 1)), shadowMap: 2048, bloom: true, antialias: true, particles: 140, treeCount: 120 };
 }
 
-/** iPhone 14-class screens are 3x. Draw at 2x so the picture stays sharp, without the full 3x cost. */
+/** Phones stay at 1.5x. A 3x iPhone framebuffer is most of the frame time. */
 function phoneDpr(native: number, mobile: boolean): number {
   if (!mobile) return Math.min(1.75, native);
-  if (native >= 2) return Math.min(2, native);
-  if (native >= 1.5) return native;
-  return native;
+  return Math.min(1.5, Math.max(native, 1));
 }
 
 export function isIOS(): boolean {

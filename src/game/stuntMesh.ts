@@ -23,16 +23,33 @@ function ribbonMesh(ribbon: { vertices: Float32Array; indices: Uint32Array }, co
   geo.setIndex(new THREE.BufferAttribute(ribbon.indices.slice(), 1));
   const row = 7;
   const count = positions.length / 3;
+  const rings = count / row;
   const uvs = new Float32Array(count * 2);
+  const normals = new Float32Array(count * 3);
+  const at = (along: number, across: number) => {
+    const aa = Math.max(0, Math.min(rings - 1, along));
+    const kk = Math.max(0, Math.min(row - 1, across));
+    const o = (aa * row + kk) * 3;
+    return new THREE.Vector3(positions[o], positions[o + 1], positions[o + 2]);
+  };
   for (let i = 0; i < count; i++) {
     const along = Math.floor(i / row);
     const across = i % row;
-    // Planks run along U in the texture, so U follows the ramp.
-    uvs[i * 2] = along * 0.42;
-    uvs[i * 2 + 1] = across / (row - 1);
+    // Plank seams in the texture are constant V. V runs along the ribbon
+    // so the boards cross the road instead of striping down the middle.
+    uvs[i * 2] = across / (row - 1);
+    uvs[i * 2 + 1] = along * 0.28;
+    const du = at(along, across + 1).sub(at(along, across - 1));
+    const dv = at(along + 1, across).sub(at(along - 1, across));
+    const normal = dv.cross(du);
+    if (normal.lengthSq() < 1e-8) normal.set(0, 1, 0);
+    else normal.normalize();
+    normals[i * 3] = normal.x;
+    normals[i * 3 + 1] = normal.y;
+    normals[i * 3 + 2] = normal.z;
   }
   geo.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
-  geo.computeVertexNormals();
+  geo.setAttribute('normal', new THREE.BufferAttribute(normals, 3));
   const material = new THREE.MeshStandardMaterial({
     color: art ? 0xffffff : color,
     map: art?.planks.map,
@@ -56,16 +73,16 @@ function ribbonMesh(ribbon: { vertices: Float32Array; indices: Uint32Array }, co
       shader.fragmentShader = shader.fragmentShader.replace(
         '#include <map_fragment>',
         `#include <map_fragment>
-         float curb = smoothstep(0.18, 0.02, vMapUv.y) + smoothstep(0.82, 0.98, vMapUv.y);
-         diffuseColor.rgb = mix(diffuseColor.rgb, texture2D(curbMap, vec2(vMapUv.x, curb)).rgb, clamp(curb, 0.0, 1.0));`,
+         float curb = smoothstep(0.16, 0.0, vMapUv.x) + smoothstep(0.84, 1.0, vMapUv.x);
+         diffuseColor.rgb = mix(diffuseColor.rgb, texture2D(curbMap, vec2(vMapUv.y, 0.5)).rgb, clamp(curb, 0.0, 1.0));`,
       );
       shader.fragmentShader = shader.fragmentShader.replace(
         '#include <normal_fragment_maps>',
         `#ifdef USE_NORMALMAP_TANGENTSPACE
           vec3 mapN = texture2D( normalMap, vNormalMapUv ).xyz * 2.0 - 1.0;
           mapN.xy *= normalScale;
-          float curbEdge = smoothstep(0.18, 0.02, vNormalMapUv.y) + smoothstep(0.82, 0.98, vNormalMapUv.y);
-          vec3 curbN = texture2D( curbNormal, vec2(vNormalMapUv.x, 0.5) ).xyz * 2.0 - 1.0;
+          float curbEdge = smoothstep(0.16, 0.0, vNormalMapUv.x) + smoothstep(0.84, 1.0, vNormalMapUv.x);
+          vec3 curbN = texture2D( curbNormal, vec2(vNormalMapUv.y, 0.5) ).xyz * 2.0 - 1.0;
           mapN = normalize(mix(mapN, curbN, clamp(curbEdge, 0.0, 1.0)));
           normal = normalize( tbn * mapN );
         #endif`,
@@ -112,10 +129,12 @@ function loopSupports(): THREE.Group {
     const y = r * (1 - Math.cos(theta));
     const z = zCenter + r * Math.sin(theta);
     if (y < 1.2) continue;
-    const post = new THREE.Mesh(new THREE.BoxGeometry(0.22, y, 0.22), mat);
-    post.position.set(laneX, y * 0.5, z);
-    post.castShadow = true;
-    group.add(post);
+    for (const side of [-1, 1]) {
+      const post = new THREE.Mesh(new THREE.BoxGeometry(0.18, y, 0.18), mat);
+      post.position.set(laneX + side * (LOOP.halfW + 0.2), y * 0.5, z);
+      post.castShadow = true;
+      group.add(post);
+    }
   }
   return group;
 }

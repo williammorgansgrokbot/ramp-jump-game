@@ -1,4 +1,4 @@
-const CACHE = 'ramp-jump-v3';
+const CACHE = 'ramp-jump-v4';
 
 self.addEventListener('install', (event) => {
   event.waitUntil(self.skipWaiting());

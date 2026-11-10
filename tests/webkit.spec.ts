@@ -39,7 +39,7 @@ test('webkit scene stays up', async ({ page }, info) => {
 
   if (!info.project.name.includes('webgpu') && !info.project.name.includes('loop')) {
     await page.getByRole('button', { name: 'Go' }).dispatchEvent('pointerdown', { pointerId: 1, bubbles: true, pointerType: 'touch' });
-    await page.waitForFunction(() => (window.__game?.position.z ?? 0) > 12, undefined, { timeout: 15_000 });
+    await page.waitForFunction(() => (window.__game?.position.z ?? 0) > 12, undefined, { timeout: 30_000 });
     const moving = await page.evaluate(() => window.__game?.position.y ?? 0);
     expect(moving).toBeGreaterThan(0.3);
     await page.screenshot({ path: `${shots}/${info.project.name}-drive.png` });

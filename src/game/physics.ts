@@ -1,5 +1,6 @@
 import RAPIER from '@dimforge/rapier3d-compat';
 import { BOOSTS, LOOP, QUARTER, loopPose, loopRibbon, quarterRibbon, laneCenter, stuntById, type StuntId } from './stunts';
+import { axlesFor, restLength, type Axle } from './carFit';
 import { barrierBoxes, driveSurfaceHeight, quatPitch, SPAWN, trackFields } from './terrain';
 
 const GROUP_CAR = 0x0001;
@@ -24,6 +25,7 @@ export interface WheelPose {
   steer: number;
   spin: number;
   grounded: boolean;
+  radius: number;
 }
 
 export interface ContactPoint {
@@ -64,11 +66,7 @@ export interface DebrisBody {
   collider: RAPIER.Collider;
 }
 
-const WHEEL_X = 0.82;
-const WHEEL_Z_FRONT = 0.95;
-const WHEEL_Z_REAR = -1.0;
-const WHEEL_RADIUS = 0.38;
-const SUSPENSION_REST = 0.62;
+const DEFAULT_AXLES = axlesFor('boy1');
 /** Tuned so a straight hold reaches the lip near 25 m/s and lands hard. */
 const ENGINE_FORCE = 560;
 
@@ -84,6 +82,7 @@ export class DriveWorld {
   readonly chassisColliders: RAPIER.Collider[] = [];
   readonly debris: DebrisBody[] = [];
 
+  private axles: Axle[] = DEFAULT_AXLES.map((axle) => ({ ...axle }));
   private readonly chassisHandles = new Set<number>();
   private readonly hiddenWheels = new Set<number>();
   private steerAngle = 0;
@@ -112,7 +111,7 @@ export class DriveWorld {
     landed: false,
     fallSpeed: 0,
     contact: null,
-    wheels: [0, 1, 2, 3].map(() => ({ x: 0, y: 0, z: 0, steer: 0, spin: 0, grounded: false })),
+    wheels: DEFAULT_AXLES.map((axle) => ({ x: axle.x, y: axle.radius - 1, z: axle.z, steer: 0, spin: 0, grounded: false, radius: axle.radius })),
     extraHits: [],
     looped: false,
     stunt: 'launch',
@@ -222,9 +221,11 @@ export class DriveWorld {
         .setCcdEnabled(true)
         .setCanSleep(false),
     );
+    // Wider and longer than the old toy, density held so the mass stays near 125 kg.
     const hull = this.world.createCollider(
-      RAPIER.ColliderDesc.cuboid(0.75, 0.28, 1.35)
-        .setDensity(55)
+      RAPIER.ColliderDesc.cuboid(0.82, 0.46, 1.48)
+        .setTranslation(0, -0.2, 0)
+        .setDensity(28)
         .setFriction(0.05)
         .setRestitution(0.02)
         .setCollisionGroups(mask(GROUP_CAR, GROUP_WORLD))
@@ -241,26 +242,33 @@ export class DriveWorld {
 
     const down = { x: 0, y: -1, z: 0 };
     const axle = { x: -1, y: 0, z: 0 };
-    const points = [
-      { x: -WHEEL_X, y: 0, z: WHEEL_Z_FRONT },
-      { x: WHEEL_X, y: 0, z: WHEEL_Z_FRONT },
-      { x: -WHEEL_X, y: 0, z: WHEEL_Z_REAR },
-      { x: WHEEL_X, y: 0, z: WHEEL_Z_REAR },
-    ];
-    for (const point of points) this.vehicle.addWheel(point, down, axle, SUSPENSION_REST, WHEEL_RADIUS);
-    for (let i = 0; i < 4; i++) this.tuneWheel(i);
+    for (const point of DEFAULT_AXLES) {
+      this.vehicle.addWheel({ x: point.x, y: 0, z: point.z }, down, axle, restLength(point.radius), point.radius);
+    }
+    for (let i = 0; i < 4; i++) this.tuneWheel(i, DEFAULT_AXLES[i]);
   }
 
-  private tuneWheel(i: number): void {
-    this.vehicle.setWheelSuspensionStiffness(i, 48);
-    this.vehicle.setWheelSuspensionCompression(i, 7);
-    this.vehicle.setWheelSuspensionRelaxation(i, 8);
-    this.vehicle.setWheelMaxSuspensionTravel(i, 0.25);
+  /** Match the raycast axles to the loaded car. Order is FL, FR, RL, RR. */
+  fitWheels(axles: Axle[]): void {
+    this.axles = axles.map((axle) => ({ ...axle }));
+    for (let i = 0; i < 4; i++) {
+      const axle = this.axles[i] ?? DEFAULT_AXLES[i];
+      this.vehicle.setWheelChassisConnectionPointCs(i, { x: axle.x, y: 0, z: axle.z });
+      this.tuneWheel(i, axle);
+      this.pose.wheels[i].radius = axle.radius;
+    }
+  }
+
+  private tuneWheel(i: number, axle: Axle): void {
+    this.vehicle.setWheelSuspensionStiffness(i, 52);
+    this.vehicle.setWheelSuspensionCompression(i, 8);
+    this.vehicle.setWheelSuspensionRelaxation(i, 9);
+    this.vehicle.setWheelMaxSuspensionTravel(i, 0.2);
     this.vehicle.setWheelMaxSuspensionForce(i, 40000);
     this.vehicle.setWheelFrictionSlip(i, i < 2 ? 180 : 140);
     this.vehicle.setWheelSideFrictionStiffness(i, 1.2);
-    this.vehicle.setWheelRadius(i, WHEEL_RADIUS);
-    this.vehicle.setWheelSuspensionRestLength(i, SUSPENSION_REST);
+    this.vehicle.setWheelRadius(i, axle.radius);
+    this.vehicle.setWheelSuspensionRestLength(i, restLength(axle.radius));
   }
 
   mass(): number {
@@ -321,7 +329,7 @@ export class DriveWorld {
   reset(stuntId: StuntId = this.stuntId): void {
     this.clearDebris();
     this.hiddenWheels.clear();
-    for (let i = 0; i < 4; i++) this.tuneWheel(i);
+    for (let i = 0; i < 4; i++) this.tuneWheel(i, this.axles[i]);
     const spawn = stuntById(stuntId).spawn;
     this.stuntId = stuntById(stuntId).id;
     this.loopTheta = 0;
@@ -411,7 +419,7 @@ export class DriveWorld {
       const cx = connection?.x ?? 0;
       const cy = connection?.y ?? 0;
       const cz = connection?.z ?? 0;
-      const suspension = this.vehicle.wheelSuspensionLength(i) ?? SUSPENSION_REST;
+      const suspension = this.vehicle.wheelSuspensionLength(i) ?? restLength(this.axles[i].radius);
       const grounded = !!this.vehicle.wheelIsInContact(i) && !this.hiddenWheels.has(i);
       if (grounded) wheelsOn += 1;
       const wheel = this.pose.wheels[i];
@@ -421,6 +429,7 @@ export class DriveWorld {
       wheel.steer = this.vehicle.wheelSteering(i) ?? 0;
       wheel.spin = this.vehicle.wheelRotation(i) ?? 0;
       wheel.grounded = grounded;
+      wheel.radius = this.vehicle.wheelRadius(i) ?? wheel.radius;
     }
 
     if (wheelsOn > 0) this.seenGround = true;
@@ -524,7 +533,7 @@ export class DriveWorld {
       this.chassis.setAngvel({ x: 0, y: 0, z: 0 }, true);
       return;
     }
-    const pose = loopPose(this.loopTheta, 0.92);
+    const pose = loopPose(this.loopTheta, 1);
     const rx = pose.up.y * pose.fwd.z - pose.up.z * pose.fwd.y;
     const quat = quatFromBasis(
       { x: rx, y: 0, z: 0 },

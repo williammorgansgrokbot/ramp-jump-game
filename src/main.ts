@@ -13,10 +13,24 @@ document.addEventListener(
 );
 
 const game = new Game();
-void game.start().then(() => {
-  if (import.meta.env.PROD && 'serviceWorker' in navigator) {
-    void navigator.serviceWorker.register(`${import.meta.env.BASE_URL}sw.js`).catch(() => undefined);
-  }
-}).catch((err) => {
+void game.start().catch((err) => {
   console.error(err);
+  game.failBoot(err);
 });
+
+if (import.meta.env.PROD && 'serviceWorker' in navigator) {
+  const hadController = !!navigator.serviceWorker.controller;
+  void navigator.serviceWorker.register(`${import.meta.env.BASE_URL}sw.js?v=3`).then((registration) => {
+    registration.addEventListener('updatefound', () => {
+      const worker = registration.installing;
+      worker?.addEventListener('statechange', () => {
+        if (worker.state === 'installed' && navigator.serviceWorker.controller) worker.postMessage('skip-waiting');
+      });
+    });
+    if (hadController) {
+      navigator.serviceWorker.addEventListener('controllerchange', () => {
+        location.reload();
+      });
+    }
+  }).catch(() => undefined);
+}

@@ -32,7 +32,7 @@ interface TreeMeta {
 
 export async function buildWorld(scene: THREE.Scene, renderer: THREE.WebGLRenderer, opts: WorldOptions): Promise<WorldView> {
   const base = import.meta.env.BASE_URL;
-  const aniso = Math.min(8, opts.anisotropy);
+  const aniso = Math.min(8, Number.isFinite(opts.anisotropy) ? opts.anisotropy : 4);
   const [pano, grass, sand, asphalt, dirt, wood, trees, treeMeta] = await Promise.all([
     loadTexture(`${base}art/${opts.hiPano ? 'pano_sea_4096x2048.webp' : 'pano_sea_2048x1024.webp'}`, aniso, false),
     loadTexture(`${base}art/textures/tex_grass.webp`, aniso, true),
@@ -41,37 +41,42 @@ export async function buildWorld(scene: THREE.Scene, renderer: THREE.WebGLRender
     loadTexture(`${base}art/textures/tex_dirt.webp`, aniso, true),
     loadTexture(`${base}art/textures/tex_ramp_wood.webp`, aniso, true),
     loadTexture(`${base}art/trees.webp`, aniso, false),
-    fetch(`${base}art/trees.json`).then((res) => {
-      if (!res.ok) throw new Error('trees.json missing');
-      return res.json() as Promise<TreeMeta[]>;
-    }),
+    fetch(`${base}art/trees.json`).then((res) => (res.ok ? res.json() as Promise<TreeMeta[]> : [])).catch(() => [] as TreeMeta[]),
   ]);
 
-  pano.mapping = THREE.EquirectangularReflectionMapping;
-  pano.colorSpace = THREE.SRGBColorSpace;
-  scene.background = pano;
-  const pmrem = new THREE.PMREMGenerator(renderer);
-  scene.environment = pmrem.fromEquirectangular(pano).texture;
-  scene.environmentIntensity = 0.72;
-  pmrem.dispose();
+  if (pano) {
+    pano.mapping = THREE.EquirectangularReflectionMapping;
+    pano.colorSpace = THREE.SRGBColorSpace;
+    scene.background = pano;
+    try {
+      const pmrem = new THREE.PMREMGenerator(renderer);
+      scene.environment = pmrem.fromEquirectangular(pano).texture;
+      scene.environmentIntensity = 0.72;
+      pmrem.dispose();
+    } catch (err) {
+      console.info('Environment map skipped', err);
+    }
+  }
 
   scene.add(ground(grass, sand));
-  scene.add(texturedSurface(-4, 50, 28, () => 0, asphalt, 3.2, 0.94, 0.02));
-  scene.add(texturedSurface(50, 78, 36, (z) => (z >= 74 ? launchHeight(74) : launchHeight(z)), wood, 2.4, 0.72, 0.08));
-  scene.add(texturedSurface(LANDING.z0, LANDING.z1, 48, landingHeight, dirt, 3.6, 0.96, 0.02));
+  scene.add(texturedSurface(-4, 50, 28, () => 0, asphalt, 0x3a4150, 3.2, 0.94, 0.02));
+  scene.add(texturedSurface(50, 78, 36, (z) => (z >= 74 ? launchHeight(74) : launchHeight(z)), wood, 0xc46a1a, 2.4, 0.72, 0.08));
+  scene.add(texturedSurface(LANDING.z0, LANDING.z1, 48, landingHeight, dirt, 0xc4a574, 3.6, 0.96, 0.02));
   scene.add(dashes());
   scene.add(chevrons());
   scene.add(barriers());
   scene.add(lipChecks());
   scene.add(edgeBulbs());
-  const sprites = scatterTrees(trees, treeMeta, opts.treeCount);
-  scene.add(sprites.shadows, sprites.foliage);
+  if (trees && treeMeta.length > 0) {
+    const sprites = scatterTrees(trees, treeMeta, opts.treeCount);
+    scene.add(sprites.shadows, sprites.foliage);
+  }
 
   return { update() {} };
 }
 
-function loadTexture(url: string, anisotropy: number, repeat: boolean): Promise<THREE.Texture> {
-  return new Promise((resolve, reject) => {
+function loadTexture(url: string, anisotropy: number, repeat: boolean): Promise<THREE.Texture | null> {
+  return new Promise((resolve) => {
     new THREE.TextureLoader().load(
       url,
       (tex) => {
@@ -84,19 +89,27 @@ function loadTexture(url: string, anisotropy: number, repeat: boolean): Promise<
         resolve(tex);
       },
       undefined,
-      () => reject(new Error(`Failed to load ${url}`)),
+      () => {
+        console.info('Texture skipped', url);
+        resolve(null);
+      },
     );
   });
 }
 
-function ground(grass: THREE.Texture, sand: THREE.Texture): THREE.Mesh {
+function ground(grass: THREE.Texture | null, sand: THREE.Texture | null): THREE.Mesh {
   const geo = new THREE.PlaneGeometry(560, 560, 1, 1);
   geo.rotateX(-Math.PI / 2);
   const uv = geo.attributes.uv as THREE.BufferAttribute;
   const pos = geo.attributes.position;
   for (let i = 0; i < pos.count; i++) uv.setXY(i, pos.getX(i) / 4.5, pos.getZ(i) / 4.5);
-  const material = new THREE.MeshStandardMaterial({ map: grass, roughness: 0.96, metalness: 0 });
-  material.onBeforeCompile = (shader) => {
+  const material = new THREE.MeshStandardMaterial({
+    map: grass ?? undefined,
+    color: grass ? 0xffffff : 0x3f9a45,
+    roughness: 0.96,
+    metalness: 0,
+  });
+  if (grass && sand) material.onBeforeCompile = (shader) => {
     shader.uniforms.sandMap = { value: sand };
     shader.vertexShader = `varying vec3 vGroundWorld;\n${shader.vertexShader}`;
     shader.vertexShader = shader.vertexShader.replace(
@@ -127,7 +140,8 @@ function texturedSurface(
   z1: number,
   steps: number,
   heightAt: (z: number) => number,
-  map: THREE.Texture,
+  map: THREE.Texture | null,
+  fallback: number,
   metersPerTile: number,
   roughness: number,
   metalness: number,
@@ -160,8 +174,13 @@ function texturedSurface(
   geo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
   geo.setIndex(indices);
   geo.computeVertexNormals();
-  const material = new THREE.MeshStandardMaterial({ map, roughness, metalness });
-  material.onBeforeCompile = (shader) => {
+  const material = new THREE.MeshStandardMaterial({
+    map: map ?? undefined,
+    color: map ? 0xffffff : fallback,
+    roughness,
+    metalness,
+  });
+  if (map) material.onBeforeCompile = (shader) => {
     shader.fragmentShader = shader.fragmentShader.replace(
       '#include <map_fragment>',
       `#include <map_fragment>
@@ -175,7 +194,8 @@ function texturedSurface(
   return mesh;
 }
 
-function scatterTrees(atlas: THREE.Texture, meta: TreeMeta[], count: number): { foliage: THREE.InstancedMesh; shadows: THREE.InstancedMesh } {
+function scatterTrees(atlas: THREE.Texture | null, meta: TreeMeta[], count: number): { foliage: THREE.InstancedMesh; shadows: THREE.InstancedMesh } {
+  if (!atlas) return { foliage: new THREE.InstancedMesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial(), 1), shadows: new THREE.InstancedMesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial(), 1) };
   const rand = mulberry32(0x5eed);
   const placed: { x: number; z: number; h: number; kind: number }[] = [];
   let guard = 0;

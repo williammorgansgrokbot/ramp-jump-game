@@ -15,6 +15,8 @@ declare module 'three/webgpu' {
   export class WebGPURenderer {
     constructor(parameters?: WebGLRendererParameters);
     init(): Promise<void>;
+    dispose(): void;
+    capabilities?: { getMaxAnisotropy?: () => number };
     domElement: HTMLCanvasElement;
     setPixelRatio(value: number): void;
     setSize(width: number, height: number, updateStyle?: boolean): void;

@@ -126,35 +126,33 @@ export class Game {
     await this.makeRenderer(canvas, this.quality.antialias);
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.05;
+    this.renderer.toneMappingExposure = 1;
     this.renderer.shadowMap.enabled = true;
-    this.renderer.shadowMap.type = THREE.PCFShadowMap;
+    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.renderer.setPixelRatio(this.quality.dpr);
     this.renderer.setClearColor(HORIZON, 1);
 
     this.scene = new THREE.Scene();
-    this.scene.fog = new THREE.Fog(HORIZON, 70, 210);
-    this.scene.environmentIntensity = 0.72;
+    this.scene.fog = new THREE.Fog(HORIZON, 160, 460);
+    this.scene.environmentIntensity = 0.55;
     this.camera = new THREE.PerspectiveCamera(58, 1, 0.15, 500);
     this.camera.position.set(0, 4.5, -6);
 
-    const hemi = new THREE.HemisphereLight(SKY_TINT, 0x6a7a3e, 0.42);
+    const hemi = new THREE.HemisphereLight(SKY_TINT, 0xcbb892, 0.62);
     this.scene.add(hemi);
-    this.sun = new THREE.DirectionalLight(0xfff1d4, 1.55);
+    this.sun = new THREE.DirectionalLight(0xffe4b8, 1.15);
     this.sun.castShadow = true;
     this.sun.shadow.mapSize.set(this.quality.shadowMap, this.quality.shadowMap);
     this.sun.shadow.camera.near = 4;
     this.sun.shadow.camera.far = 56;
-    this.sun.shadow.camera.left = -12;
-    this.sun.shadow.camera.right = 12;
-    this.sun.shadow.camera.top = 12;
-    this.sun.shadow.camera.bottom = -12;
-    this.sun.shadow.bias = -0.0004;
-    this.sun.shadow.normalBias = 0.04;
+    this.sun.shadow.camera.left = -14;
+    this.sun.shadow.camera.right = 14;
+    this.sun.shadow.camera.top = 14;
+    this.sun.shadow.camera.bottom = -14;
+    this.sun.shadow.bias = -0.00035;
+    this.sun.shadow.normalBias = 0.08;
+    this.sun.shadow.radius = 2.5;
     this.scene.add(this.sun, this.sun.target);
-    const fill = new THREE.DirectionalLight(0xcfe6ff, 0.4);
-    fill.position.set(20, 12, -10);
-    this.scene.add(fill);
 
     this.resize();
     window.addEventListener('resize', () => this.resize());
@@ -267,7 +265,7 @@ export class Game {
     if (!this.useBloom) return;
     this.composer = new EffectComposer(this.renderer);
     this.composer.addPass(new RenderPass(this.scene, this.camera));
-    this.bloom = new UnrealBloomPass(new THREE.Vector2(1, 1), 0.16, 0.32, 0.9);
+    this.bloom = new UnrealBloomPass(new THREE.Vector2(1, 1), 0.05, 0.2, 0.98);
     this.composer.addPass(this.bloom);
     this.resize();
   }

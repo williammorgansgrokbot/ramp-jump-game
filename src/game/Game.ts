@@ -128,13 +128,13 @@ export class Game {
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1;
     this.renderer.shadowMap.enabled = true;
-    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    this.renderer.shadowMap.type = this.quality.level === 'high' ? THREE.PCFSoftShadowMap : THREE.PCFShadowMap;
     this.renderer.setPixelRatio(this.quality.dpr);
     this.renderer.setClearColor(HORIZON, 1);
 
     this.scene = new THREE.Scene();
-    this.scene.fog = new THREE.Fog(HORIZON, 160, 460);
-    this.scene.environmentIntensity = 0.55;
+    this.scene.fog = new THREE.Fog(HORIZON, 140, 420);
+    this.scene.environmentIntensity = 0.4;
     this.camera = new THREE.PerspectiveCamera(58, 1, 0.15, 500);
     this.camera.position.set(0, 4.5, -6);
 
@@ -168,7 +168,6 @@ export class Game {
     this.drive.settle();
     try {
       this.worldView = await buildWorld(this.scene, this.renderer, {
-        hiPano: this.quality.hiPano,
         hiTex: this.quality.level === 'high',
         treeCount: this.quality.treeCount,
         propLevel: this.quality.level,

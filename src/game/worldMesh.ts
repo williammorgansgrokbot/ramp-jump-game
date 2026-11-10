@@ -6,11 +6,11 @@ import { buildStuntExtras } from './stuntMesh';
 import { deckRole, dressDeck, dressGround, loadFieldArt, scatterField, type FieldArt } from './fieldArt';
 import { enabledLaunch } from './catalog';
 
-/** Brightest cluster in the sea panorama (equirect, Three.js equirectUv). */
-export const SUN_DIR = new THREE.Vector3(-0.22, 0.827, 0.517).normalize();
-/** Average color of the panorama's horizon band, so fog matches the haze. */
-export const HORIZON = new THREE.Color(154 / 255, 174 / 255, 183 / 255);
-export const SKY_TINT = new THREE.Color(114 / 255, 154 / 255, 195 / 255);
+/** High and off to the side, so the chase camera does not sit in the roof's specular reflection. */
+export const SUN_DIR = new THREE.Vector3(0.72, 0.66, 0.22).normalize();
+/** Horizon haze of the art-v4 sky, #DFD4BB. Fog uses the same color. */
+export const HORIZON = new THREE.Color(0xdfd4bb);
+export const SKY_TINT = new THREE.Color(0xb7dcff);
 
 export interface WorldOptions {
   hiPano: boolean;
@@ -40,7 +40,10 @@ export async function buildWorld(scene: THREE.Scene, renderer: THREE.WebGLRender
   const base = import.meta.env.BASE_URL;
   const aniso = Math.min(16, Number.isFinite(opts.anisotropy) ? opts.anisotropy : 4);
   const field = await loadFieldArt(base, opts.hiTex, aniso).catch(() => null);
-  const [grass, sand, asphalt, dirt, wood, trees, treeMeta] = await Promise.all([
+  const skyFile = opts.hiPano ? 'sky_pano_4096x2048.jpg' : 'sky_pano_2048x1024.jpg';
+  const [sky, horizonTex, grass, sand, asphalt, dirt, wood, trees, treeMeta] = await Promise.all([
+    loadTexture(`${base}art/${skyFile}`, aniso, false),
+    loadTexture(`${base}art/horizon_band_4096x512.webp`, aniso, false),
     loadTexture(`${base}art/textures/tex_grass.webp`, aniso, true),
     loadTexture(`${base}art/textures/tex_sand.webp`, aniso, true),
     loadTexture(`${base}art/textures/tex_asphalt.webp`, aniso, true),
@@ -50,17 +53,21 @@ export async function buildWorld(scene: THREE.Scene, renderer: THREE.WebGLRender
     fetch(`${base}art/trees.json`).then((res) => (res.ok ? res.json() as Promise<TreeMeta[]> : [])).catch(() => [] as TreeMeta[]),
   ]);
 
-  scene.add(paintedSky());
-  try {
-    const pmrem = new THREE.PMREMGenerator(renderer);
-    const env = skyEnvironmentMap();
-    scene.environment = pmrem.fromEquirectangular(env).texture;
-    scene.environmentIntensity = 0.72;
-    env.dispose();
-    pmrem.dispose();
-  } catch (err) {
-    console.info('Environment map skipped', err);
+  if (sky) {
+    sky.mapping = THREE.EquirectangularReflectionMapping;
+    sky.colorSpace = THREE.SRGBColorSpace;
+    sky.flipY = true;
+    scene.background = sky;
+    try {
+      const pmrem = new THREE.PMREMGenerator(renderer);
+      scene.environment = pmrem.fromEquirectangular(sky).texture;
+      scene.environmentIntensity = 0.55;
+      pmrem.dispose();
+    } catch (err) {
+      console.info('Environment map skipped', err);
+    }
   }
+  if (horizonTex) scene.add(horizonBand(horizonTex));
 
   const [runway, landing] = surfaceGrids();
   scene.add(ground(grass, sand, dirt, field));
@@ -84,7 +91,6 @@ export async function buildWorld(scene: THREE.Scene, renderer: THREE.WebGLRender
   scene.add(extras);
   if (field) scatterField(scene, field, opts.propLevel);
   else if (opts.tuftCount > 0) scene.add(grassTufts(opts.tuftCount));
-  scene.add(horizonHills());
   scene.add(fieldHedges());
   if (trees && treeMeta.length > 0) {
     const sprites = scatterTrees(trees, treeMeta, opts.treeCount);
@@ -101,88 +107,26 @@ export async function buildWorld(scene: THREE.Scene, renderer: THREE.WebGLRender
   };
 }
 
-/** Sky only. The lower hemisphere is the horizon color, so looking down never shows a photo of water or grass. */
-function paintedSky(): THREE.Mesh {
-  const geo = new THREE.SphereGeometry(800, 28, 16);
-  const mat = new THREE.ShaderMaterial({
-    side: THREE.BackSide,
+/** Distant tree line, just outside the hedges. The strip is transparent above the hills. */
+function horizonBand(tex: THREE.Texture): THREE.Mesh {
+  const radius = 210;
+  const height = 26;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.wrapS = THREE.ClampToEdgeWrapping;
+  tex.wrapT = THREE.ClampToEdgeWrapping;
+  tex.flipY = false;
+  const geo = new THREE.CylinderGeometry(radius, radius, height, 72, 1, true);
+  const mat = new THREE.MeshBasicMaterial({
+    map: tex,
+    transparent: true,
     depthWrite: false,
-    fog: false,
-    uniforms: {
-      horizon: { value: HORIZON.clone() },
-      zenith: { value: new THREE.Color(0.45, 0.68, 0.9) },
-    },
-    vertexShader: `
-      varying vec3 vDir;
-      void main() {
-        vec4 world = modelMatrix * vec4(position, 1.0);
-        vDir = world.xyz;
-        gl_Position = projectionMatrix * viewMatrix * world;
-      }
-    `,
-    fragmentShader: `
-      varying vec3 vDir;
-      uniform vec3 horizon;
-      uniform vec3 zenith;
-      void main() {
-        vec3 dir = normalize(vDir - cameraPosition);
-        float h = dir.y;
-        float lift = smoothstep(0.0, 0.7, max(h, 0.0));
-        vec3 col = mix(horizon, zenith, lift);
-        float puff = sin(dir.x * 8.0 + dir.z * 2.4) * sin(dir.z * 6.5 - dir.x * 1.7);
-        float cloud = smoothstep(0.25, 0.82, puff) * smoothstep(0.04, 0.2, h) * (1.0 - smoothstep(0.55, 0.92, h));
-        col = mix(col, vec3(0.97, 0.98, 0.99), cloud * 0.72);
-        if (h < 0.0) col = horizon;
-        gl_FragColor = vec4(col, 1.0);
-      }
-    `,
+    side: THREE.BackSide,
+    fog: true,
   });
   const mesh = new THREE.Mesh(geo, mat);
+  mesh.position.set(82, FIELD.floorY + height * 0.28, 108);
   mesh.frustumCulled = false;
-  mesh.renderOrder = -1;
   return mesh;
-}
-
-function skyEnvironmentMap(): THREE.Texture {
-  const canvas = document.createElement('canvas');
-  canvas.width = 512;
-  canvas.height = 256;
-  const ctx = canvas.getContext('2d');
-  if (!ctx) return blankTex();
-  const sky = ctx.createLinearGradient(0, 0, 0, 256);
-  sky.addColorStop(0, '#73b4ea');
-  sky.addColorStop(0.38, '#d5e6f2');
-  sky.addColorStop(0.5, '#9aaeb7');
-  sky.addColorStop(1, '#9aaeb7');
-  ctx.fillStyle = sky;
-  ctx.fillRect(0, 0, 512, 256);
-  ctx.fillStyle = 'rgba(255,255,255,0.85)';
-  for (const [x, y, w] of [[40, 40, 70], [180, 28, 90], [320, 48, 60], [430, 22, 50]] as const) {
-    ctx.beginPath();
-    ctx.ellipse(x, y, w, 16, 0, 0, Math.PI * 2);
-    ctx.fill();
-  }
-  const tex = new THREE.CanvasTexture(canvas);
-  tex.mapping = THREE.EquirectangularReflectionMapping;
-  tex.colorSpace = THREE.SRGBColorSpace;
-  tex.needsUpdate = true;
-  return tex;
-}
-
-function horizonHills(): THREE.Group {
-  const group = new THREE.Group();
-  const mat = new THREE.MeshStandardMaterial({ color: 0x7ea36a, roughness: 1 });
-  const rand = mulberry32(0x411);
-  for (let i = 0; i < 26; i++) {
-    const angle = (i / 26) * Math.PI * 2 + rand() * 0.1;
-    const radius = 145 + rand() * 35;
-    const height = 6 + rand() * 11;
-    const hill = new THREE.Mesh(new THREE.SphereGeometry(height, 10, 7), mat);
-    hill.scale.y = 0.42;
-    hill.position.set(Math.cos(angle) * radius + 50, GRASS_Y + height * 0.18, Math.sin(angle) * radius + 50);
-    group.add(hill);
-  }
-  return group;
 }
 
 function fieldHedges(): THREE.Group {

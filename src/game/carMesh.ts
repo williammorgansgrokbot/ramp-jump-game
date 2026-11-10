@@ -231,11 +231,12 @@ function refreshTextures(model: LoadedCar): void {
     const next = new THREE.MeshPhysicalMaterial({
       map: tex,
       color: current.color,
-      roughness: wheel ? 0.55 : 0.3,
-      metalness: 0.02,
-      clearcoat: wheel ? 0.35 : 1,
-      clearcoatRoughness: wheel ? 0.35 : 0.14,
-      envMapIntensity: 1.35,
+      roughness: wheel ? 0.62 : 0.42,
+      metalness: 0,
+      specularIntensity: wheel ? 0.18 : 0.32,
+      clearcoat: wheel ? 0.12 : 1,
+      clearcoatRoughness: wheel ? 0.5 : 0.34,
+      envMapIntensity: 0.62,
     });
     if (current.userData.yellow) {
       next.onBeforeCompile = (shader) => {
@@ -244,8 +245,8 @@ function refreshTextures(model: LoadedCar): void {
           `#include <color_fragment>
            {
              float luma = dot(diffuseColor.rgb, vec3(0.299, 0.587, 0.114));
-             diffuseColor.rgb = mix(vec3(luma), diffuseColor.rgb, 1.45);
-             diffuseColor.rgb *= vec3(1.06, 0.98, 0.78);
+             diffuseColor.rgb = mix(vec3(luma), diffuseColor.rgb, 1.28);
+             diffuseColor.rgb *= vec3(1.04, 0.99, 0.82);
            }`,
         );
       };
@@ -303,12 +304,13 @@ function bakeTexture(map: THREE.Texture | null, anisotropy: number): void {
 function paint(map: THREE.Texture | null, yellow: boolean, wheel: boolean, key: string): THREE.MeshPhysicalMaterial {
   const material = new THREE.MeshPhysicalMaterial({
     map,
-    color: yellow && !wheel ? new THREE.Color(1.12, 1.02, 0.72) : new THREE.Color(0xffffff),
-    roughness: wheel ? 0.55 : 0.3,
-    metalness: 0.02,
-    clearcoat: wheel ? 0.35 : 1,
-    clearcoatRoughness: wheel ? 0.35 : 0.14,
-    envMapIntensity: 1.35,
+    color: yellow && !wheel ? new THREE.Color(1.08, 1.01, 0.78) : new THREE.Color(0xffffff),
+    roughness: wheel ? 0.62 : 0.42,
+    metalness: 0,
+    specularIntensity: wheel ? 0.18 : 0.32,
+    clearcoat: wheel ? 0.12 : 1,
+    clearcoatRoughness: wheel ? 0.5 : 0.34,
+    envMapIntensity: 0.62,
   });
   // WebKit reuses one physical-shader program and the later cars' maps sample black.
   const token = key.replace(/[^a-z0-9]/gi, '_').toUpperCase();
@@ -322,8 +324,8 @@ function paint(map: THREE.Texture | null, yellow: boolean, wheel: boolean, key: 
         `#include <color_fragment>
          {
            float luma = dot(diffuseColor.rgb, vec3(0.299, 0.587, 0.114));
-           diffuseColor.rgb = mix(vec3(luma), diffuseColor.rgb, 1.45);
-           diffuseColor.rgb *= vec3(1.06, 0.98, 0.78);
+           diffuseColor.rgb = mix(vec3(luma), diffuseColor.rgb, 1.28);
+           diffuseColor.rgb *= vec3(1.04, 0.99, 0.82);
          }`,
       );
     }

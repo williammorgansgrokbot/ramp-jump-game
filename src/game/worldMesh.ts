@@ -3,6 +3,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { barrierBoxes, launchHeight, surfaceGrids, TRACK_HALF_WIDTH, type SurfaceGrid } from './terrain';
 import { LOOP, QUARTER, GAP, MEGA } from './stunts';
 import { buildStuntExtras } from './stuntMesh';
+import { deckRole, dressDeck, dressGround, loadFieldArt, scatterField, type FieldArt } from './fieldArt';
 import { enabledLaunch } from './catalog';
 
 /** Brightest cluster in the sea panorama (equirect, Three.js equirectUv). */
@@ -13,8 +14,10 @@ export const SKY_TINT = new THREE.Color(114 / 255, 154 / 255, 195 / 255);
 
 export interface WorldOptions {
   hiPano: boolean;
+  hiTex: boolean;
   treeCount: number;
   tuftCount: number;
+  propLevel: 'high' | 'medium' | 'low';
   anisotropy: number;
 }
 
@@ -35,7 +38,8 @@ interface TreeMeta {
 
 export async function buildWorld(scene: THREE.Scene, renderer: THREE.WebGLRenderer, opts: WorldOptions): Promise<WorldView> {
   const base = import.meta.env.BASE_URL;
-  const aniso = Math.min(8, Number.isFinite(opts.anisotropy) ? opts.anisotropy : 4);
+  const aniso = Math.min(16, Number.isFinite(opts.anisotropy) ? opts.anisotropy : 4);
+  const field = await loadFieldArt(base, opts.hiTex, aniso).catch(() => null);
   const [pano, grass, sand, asphalt, dirt, wood, trees, treeMeta] = await Promise.all([
     loadTexture(`${base}art/${opts.hiPano ? 'pano_sea_4096x2048.webp' : 'pano_sea_2048x1024.webp'}`, aniso, false),
     loadTexture(`${base}art/textures/tex_grass.webp`, aniso, true),
@@ -62,13 +66,13 @@ export async function buildWorld(scene: THREE.Scene, renderer: THREE.WebGLRender
   }
 
   const [runway, landing] = surfaceGrids();
-  scene.add(ground(grass, sand, dirt));
-  scene.add(driveDeck(runway, asphalt, wood, dirt, 3.2, 0.9, 0.04, 'road'));
-  scene.add(driveDeck(landing, dirt, sand, dirt, 3.6, 0.96, 0.02, 'dirt'));
+  scene.add(ground(grass, sand, dirt, field));
+  scene.add(driveDeck(runway, asphalt, wood, dirt, 3.2, 0.9, 0.04, 'road', field));
+  scene.add(driveDeck(landing, dirt, sand, dirt, 3.6, 0.96, 0.02, 'dirt', field));
   for (const grid of surfaceGrids()) {
     if (grid.id === 'runway-ramp' || grid.id === 'landing') continue;
     const dirtDeck = grid.id.endsWith('land');
-    scene.add(driveDeck(grid, dirtDeck ? dirt : asphalt, sand, dirt, 3.4, dirtDeck ? 0.96 : 0.9, 0.03, dirtDeck ? 'dirt' : 'road'));
+    scene.add(driveDeck(grid, dirtDeck ? dirt : asphalt, sand, dirt, 3.4, dirtDeck ? 0.96 : 0.9, 0.03, dirtDeck ? 'dirt' : 'road', field));
   }
   scene.add(dashes());
   scene.add(edgeLines());
@@ -79,9 +83,10 @@ export async function buildWorld(scene: THREE.Scene, renderer: THREE.WebGLRender
   scene.add(edgeBulbs());
   scene.add(pond(sand));
   scene.add(quarterPipe(wood));
-  const extras = buildStuntExtras(wood);
+  const extras = buildStuntExtras(wood, field);
   scene.add(extras);
-  if (opts.tuftCount > 0) scene.add(grassTufts(opts.tuftCount));
+  if (field) scatterField(scene, field, opts.propLevel);
+  else if (opts.tuftCount > 0) scene.add(grassTufts(opts.tuftCount));
   if (trees && treeMeta.length > 0) {
     const sprites = scatterTrees(trees, treeMeta, opts.treeCount);
     scene.add(sprites.shadows, sprites.foliage);
@@ -129,7 +134,7 @@ function blankTex(): THREE.Texture {
   return tex;
 }
 
-function ground(grass: THREE.Texture | null, sand: THREE.Texture | null, dirt: THREE.Texture | null): THREE.Mesh {
+function ground(grass: THREE.Texture | null, sand: THREE.Texture | null, dirt: THREE.Texture | null, art: FieldArt | null): THREE.Mesh {
   const geo = new THREE.PlaneGeometry(560, 560, 48, 48);
   geo.rotateX(-Math.PI / 2);
   const uv = geo.attributes.uv as THREE.BufferAttribute;
@@ -142,8 +147,10 @@ function ground(grass: THREE.Texture | null, sand: THREE.Texture | null, dirt: T
     metalness: 0,
   });
   material.onBeforeCompile = (shader) => {
-    shader.uniforms.sandMap = { value: sand ?? blankTex() };
-    shader.uniforms.dirtMap = { value: dirt ?? blankTex() };
+    if (!art) {
+      shader.uniforms.sandMap = { value: sand ?? blankTex() };
+      shader.uniforms.dirtMap = { value: dirt ?? blankTex() };
+    }
     shader.vertexShader = `varying vec3 vGroundWorld;\n${shader.vertexShader}`;
     shader.vertexShader = shader.vertexShader.replace(
       '#include <begin_vertex>',
@@ -160,8 +167,10 @@ function ground(grass: THREE.Texture | null, sand: THREE.Texture | null, dirt: T
       `#include <project_vertex>
        vGroundWorld = (modelMatrix * vec4(transformed, 1.0)).xyz;`,
     );
-    shader.fragmentShader = `varying vec3 vGroundWorld;\nuniform sampler2D sandMap;\nuniform sampler2D dirtMap;\n${shader.fragmentShader}`;
-    shader.fragmentShader = shader.fragmentShader.replace(
+    shader.fragmentShader = art
+      ? `varying vec3 vGroundWorld;\n${shader.fragmentShader}`
+      : `varying vec3 vGroundWorld;\nuniform sampler2D sandMap;\nuniform sampler2D dirtMap;\n${shader.fragmentShader}`;
+    if (!art) shader.fragmentShader = shader.fragmentShader.replace(
       '#include <map_fragment>',
       `#include <map_fragment>
        vec3 sandCol = texture2D(sandMap, vMapUv * 0.85).rgb;
@@ -174,13 +183,8 @@ function ground(grass: THREE.Texture | null, sand: THREE.Texture | null, dirt: T
        float macro = 0.5 + 0.5 * sin(vMapUv.x * 1.7) * sin(vMapUv.y * 1.3);
        diffuseColor.rgb *= mix(0.88, 1.08, macro);`,
     );
-    shader.fragmentShader = shader.fragmentShader.replace(
-      '#include <normal_fragment_maps>',
-      `#include <normal_fragment_maps>
-       float luma = dot(diffuseColor.rgb, vec3(0.299, 0.587, 0.114));
-       normal = normalize(normal - vec3(dFdx(luma), dFdy(luma), 0.0) * 1.5);`,
-    );
   };
+  if (art) dressGround(material, art);
   const mesh = new THREE.Mesh(geo, material);
   mesh.position.y = GRASS_Y;
   mesh.receiveShadow = true;
@@ -205,6 +209,7 @@ function driveDeck(
   roughness: number,
   metalness: number,
   mode: 'road' | 'dirt',
+  art: FieldArt | null = null,
 ): THREE.Group {
   const samples = gridSamples(grid);
   const nx = 8;
@@ -241,7 +246,8 @@ function driveDeck(
     polygonOffsetFactor: 1,
     polygonOffsetUnits: 1,
   });
-  material.onBeforeCompile = (shader) => {
+  if (art) dressDeck(material, art, deckRole(grid.id), grid.x);
+  else material.onBeforeCompile = (shader) => {
     shader.uniforms.blendMap = { value: blend ?? blankTex() };
     shader.uniforms.dirtMap = { value: dirt ?? blankTex() };
     shader.uniforms.laneX = { value: grid.x };

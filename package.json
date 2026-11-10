@@ -9,6 +9,7 @@
     "preview": "vite preview --host 127.0.0.1 --port 4173 --strictPort",
     "icons": "node scripts/make-icons.mjs",
     "sim": "tsx scripts/check-drive.ts",
+    "ground": "tsx scripts/check-ground.ts",
     "test": "playwright test",
     "test:ui": "playwright test --headed"
   },

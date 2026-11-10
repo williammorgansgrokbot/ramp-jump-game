@@ -38,7 +38,8 @@ export class ToyCar {
   constructor(config: CarConfig) {
     this.group.name = 'toy-car';
 
-    this.bodyMat = paint(config.body, { clearcoat: 0.9, clearcoatRoughness: 0.16, roughness: 0.28, metalness: 0.22 });
+    this.bodyMat = paint(config.body, { clearcoat: 1, clearcoatRoughness: 0.08, roughness: 0.2, metalness: 0.32 });
+    this.bodyMat.envMapIntensity = 1.6;
     this.accentMat = paint(config.accent, { clearcoat: 0.7, roughness: 0.32, metalness: 0.15 });
     this.roofMat = paint(config.roof, { clearcoat: 0.5, roughness: 0.35, metalness: 0.05 });
     this.plateCanvas = document.createElement('canvas');
@@ -49,9 +50,9 @@ export class ToyCar {
     this.plateTex.anisotropy = 4;
     this.plateMat = new THREE.MeshStandardMaterial({ map: this.plateTex, roughness: 0.45, metalness: 0.05 });
 
-    const bodyGeo = new RoundedBoxGeometry(1.48, 0.48, 2.4, 4, 0.13);
+    const bodyGeo = new RoundedBoxGeometry(1.58, 0.54, 2.52, 5, 0.2);
     this.body = new THREE.Mesh(bodyGeo, this.bodyMat);
-    this.body.position.y = 0.02;
+    this.body.position.y = 0.06;
     this.body.castShadow = true;
     this.body.name = 'shell';
     this.group.add(this.body);
@@ -59,6 +60,8 @@ export class ToyCar {
     this.original = new Float32Array(this.positionAttr.array);
 
     this.addCabin();
+    this.addEyes();
+    this.addChrome();
     this.addLights();
     this.paintPlate(config);
     this.addPlate(0, 0.72, -0.12, 0.62, 0.28);
@@ -108,14 +111,10 @@ export class ToyCar {
     this.accentMat.color.set(config.accent);
     this.roofMat.color.set(config.roof);
     this.paintPlate(config);
-    const hub = this.wheels[0]?.children[1] as THREE.Mesh | undefined;
-    const hubMat = hub?.material;
-    if (hubMat && !Array.isArray(hubMat) && hubMat instanceof THREE.MeshPhysicalMaterial) {
-      for (const wheel of this.wheels) {
-        const cap = wheel.children[1] as THREE.Mesh;
-        const material = cap.material;
-        if (!Array.isArray(material) && material instanceof THREE.MeshPhysicalMaterial) material.color.set(config.accent);
-      }
+    for (const wheel of this.wheels) {
+      const cap = wheel.getObjectByName('hub') as THREE.Mesh | undefined;
+      const material = cap?.material;
+      if (material && !Array.isArray(material) && material instanceof THREE.MeshPhysicalMaterial) material.color.set(config.accent);
     }
   }
 
@@ -191,6 +190,32 @@ export class ToyCar {
     }
   }
 
+  private addEyes(): void {
+    const white = new THREE.MeshStandardMaterial({ color: 0xfffdf8, roughness: 0.32 });
+    const pupil = new THREE.MeshStandardMaterial({ color: 0x1a1a1e, roughness: 0.4 });
+    for (const x of [-0.24, 0.24]) {
+      const eye = new THREE.Mesh(new THREE.SphereGeometry(0.11, 14, 12), white);
+      eye.position.set(x, 0.48, 0.56);
+      const dot = new THREE.Mesh(new THREE.SphereGeometry(0.045, 10, 8), pupil);
+      dot.position.set(0, -0.01, 0.08);
+      eye.add(dot);
+      this.group.add(eye);
+    }
+  }
+
+  private addChrome(): void {
+    const chrome = new THREE.MeshPhysicalMaterial({
+      color: 0xe7eef6,
+      metalness: 1,
+      roughness: 0.12,
+      envMapIntensity: 1.5,
+    });
+    const belt = new THREE.Mesh(new RoundedBoxGeometry(1.66, 0.07, 2.15, 3, 0.03), chrome);
+    belt.position.set(0, 0.16, 0.02);
+    belt.castShadow = true;
+    this.group.add(belt);
+  }
+
   private addLights(): void {
     const head = new THREE.MeshStandardMaterial({
       color: 0xfff6d2,
@@ -204,9 +229,10 @@ export class ToyCar {
       emissiveIntensity: 0.7,
       roughness: 0.3,
     });
-    for (const x of [-0.42, 0.42]) {
-      const lamp = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.14, 0.06), head);
-      lamp.position.set(x, 0.1, 1.22);
+    for (const x of [-0.46, 0.46]) {
+      const lamp = new THREE.Mesh(new THREE.SphereGeometry(0.11, 14, 12), head);
+      lamp.scale.set(1.35, 0.82, 0.55);
+      lamp.position.set(x, 0.1, 1.28);
       this.group.add(lamp);
       const rear = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.1, 0.05), tail);
       rear.position.set(x, 0.14, -1.2);
@@ -322,16 +348,26 @@ function bumper(front: boolean): THREE.Mesh {
   return mesh;
 }
 
+const VISUAL_TIRE = 0.38;
+
 function makeWheel(tireMat: THREE.Material, hubMat: THREE.Material): THREE.Group {
   const group = new THREE.Group();
-  const tireGeo = new THREE.CylinderGeometry(0.38, 0.38, 0.32, 18);
+  const tireGeo = new THREE.CylinderGeometry(VISUAL_TIRE, VISUAL_TIRE, 0.3, 20);
   tireGeo.rotateZ(Math.PI / 2);
   const tire = new THREE.Mesh(tireGeo, tireMat);
   tire.castShadow = true;
-  const hubGeo = new THREE.CylinderGeometry(0.16, 0.16, 0.34, 12);
+  group.add(tire);
+  const hubGeo = new THREE.CylinderGeometry(0.18, 0.18, 0.32, 14);
   hubGeo.rotateZ(Math.PI / 2);
   const hub = new THREE.Mesh(hubGeo, hubMat);
-  group.add(tire, hub);
+  hub.name = 'hub';
+  group.add(hub);
+  for (let i = 0; i < 4; i++) {
+    const rib = new THREE.Mesh(new THREE.CylinderGeometry(VISUAL_TIRE + 0.008, VISUAL_TIRE + 0.008, 0.028, 16), tireMat);
+    rib.rotation.z = Math.PI / 2;
+    rib.position.x = -0.1 + i * 0.066;
+    group.add(rib);
+  }
   return group;
 }
 

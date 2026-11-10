@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { barrierBoxes, LANDING, launchHeight, landingHeight, TRACK_HALF_WIDTH } from './terrain';
+import { barrierBoxes, launchHeight, surfaceGrids, TRACK_HALF_WIDTH, type SurfaceGrid } from './terrain';
 import { enabledLaunch } from './catalog';
 
 /** Brightest cluster in the sea panorama (equirect, Three.js equirectUv). */
@@ -12,6 +12,7 @@ export const SKY_TINT = new THREE.Color(114 / 255, 154 / 255, 195 / 255);
 export interface WorldOptions {
   hiPano: boolean;
   treeCount: number;
+  tuftCount: number;
   anisotropy: number;
 }
 
@@ -58,15 +59,20 @@ export async function buildWorld(scene: THREE.Scene, renderer: THREE.WebGLRender
     }
   }
 
-  scene.add(ground(grass, sand));
-  scene.add(texturedSurface(-4, 50, 28, () => 0, asphalt, 0x3a4150, 3.2, 0.94, 0.02));
-  scene.add(texturedSurface(50, 78, 36, (z) => (z >= 74 ? launchHeight(74) : launchHeight(z)), wood, 0xc46a1a, 2.4, 0.72, 0.08));
-  scene.add(texturedSurface(LANDING.z0, LANDING.z1, 48, landingHeight, dirt, 0xc4a574, 3.6, 0.96, 0.02));
+  const [runway, landing] = surfaceGrids();
+  scene.add(ground(grass, sand, dirt));
+  scene.add(driveDeck(runway, asphalt, wood, dirt, 3.2, 0.9, 0.04, 'road'));
+  scene.add(driveDeck(landing, dirt, sand, dirt, 3.6, 0.96, 0.02, 'dirt'));
   scene.add(dashes());
+  scene.add(edgeLines());
   scene.add(chevrons());
   scene.add(barriers());
+  scene.add(rampBuild(wood));
   scene.add(lipChecks());
   scene.add(edgeBulbs());
+  scene.add(pond(sand));
+  scene.add(quarterPipe(wood));
+  if (opts.tuftCount > 0) scene.add(grassTufts(opts.tuftCount));
   if (trees && treeMeta.length > 0) {
     const sprites = scatterTrees(trees, treeMeta, opts.treeCount);
     scene.add(sprites.shadows, sprites.foliage);
@@ -97,8 +103,18 @@ function loadTexture(url: string, anisotropy: number, repeat: boolean): Promise<
   });
 }
 
-function ground(grass: THREE.Texture | null, sand: THREE.Texture | null): THREE.Mesh {
-  const geo = new THREE.PlaneGeometry(560, 560, 1, 1);
+const GRASS_Y = -0.55;
+const SKIRT = 0.62;
+
+function blankTex(): THREE.Texture {
+  const tex = new THREE.DataTexture(new Uint8Array([255, 255, 255, 255]), 1, 1);
+  tex.needsUpdate = true;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+function ground(grass: THREE.Texture | null, sand: THREE.Texture | null, dirt: THREE.Texture | null): THREE.Mesh {
+  const geo = new THREE.PlaneGeometry(560, 560, 48, 48);
   geo.rotateX(-Math.PI / 2);
   const uv = geo.attributes.uv as THREE.BufferAttribute;
   const pos = geo.attributes.position;
@@ -109,64 +125,90 @@ function ground(grass: THREE.Texture | null, sand: THREE.Texture | null): THREE.
     roughness: 0.96,
     metalness: 0,
   });
-  if (grass && sand) material.onBeforeCompile = (shader) => {
-    shader.uniforms.sandMap = { value: sand };
+  material.onBeforeCompile = (shader) => {
+    shader.uniforms.sandMap = { value: sand ?? blankTex() };
+    shader.uniforms.dirtMap = { value: dirt ?? blankTex() };
     shader.vertexShader = `varying vec3 vGroundWorld;\n${shader.vertexShader}`;
+    shader.vertexShader = shader.vertexShader.replace(
+      '#include <begin_vertex>',
+      `#include <begin_vertex>
+       float ax = abs(transformed.x);
+       float side = smoothstep(14.0, 32.0, ax);
+       float ahead = smoothstep(175.0, 250.0, transformed.z);
+       float back = smoothstep(-16.0, -80.0, transformed.z);
+       float wave = sin(transformed.x * 0.042) * sin(transformed.z * 0.027);
+       transformed.y += (side * 0.9 + ahead * 0.55 + back * 0.35) * (1.45 * wave + 0.4 * sin(transformed.z * 0.018));`,
+    );
     shader.vertexShader = shader.vertexShader.replace(
       '#include <project_vertex>',
       `#include <project_vertex>
        vGroundWorld = (modelMatrix * vec4(transformed, 1.0)).xyz;`,
     );
-    shader.fragmentShader = `varying vec3 vGroundWorld;\nuniform sampler2D sandMap;\n${shader.fragmentShader}`;
+    shader.fragmentShader = `varying vec3 vGroundWorld;\nuniform sampler2D sandMap;\nuniform sampler2D dirtMap;\n${shader.fragmentShader}`;
     shader.fragmentShader = shader.fragmentShader.replace(
       '#include <map_fragment>',
       `#include <map_fragment>
-       vec4 sandTex = texture2D(sandMap, vMapUv * 0.85);
+       vec3 sandCol = texture2D(sandMap, vMapUv * 0.85).rgb;
+       vec3 dirtCol = texture2D(dirtMap, vMapUv * 1.15).rgb;
        float dist = length(vGroundWorld.xz - vec2(0.0, 70.0));
-       float sandMix = smoothstep(42.0, 125.0, dist);
-       diffuseColor.rgb = mix(diffuseColor.rgb, sandTex.rgb, sandMix);
-       float macro = 0.5 + 0.5 * sin(vMapUv.x * 1.9) * sin(vMapUv.y * 1.4);
-       diffuseColor.rgb *= mix(0.9, 1.08, macro);`,
+       float sandMix = smoothstep(48.0, 140.0, dist);
+       float shoulder = (1.0 - smoothstep(9.2, 17.0, abs(vGroundWorld.x))) * smoothstep(-6.0, 4.0, vGroundWorld.z) * (1.0 - smoothstep(162.0, 184.0, vGroundWorld.z));
+       diffuseColor.rgb = mix(diffuseColor.rgb, dirtCol, shoulder * 0.8);
+       diffuseColor.rgb = mix(diffuseColor.rgb, sandCol, sandMix * (1.0 - shoulder));
+       float macro = 0.5 + 0.5 * sin(vMapUv.x * 1.7) * sin(vMapUv.y * 1.3);
+       diffuseColor.rgb *= mix(0.88, 1.08, macro);`,
+    );
+    shader.fragmentShader = shader.fragmentShader.replace(
+      '#include <normal_fragment_maps>',
+      `#include <normal_fragment_maps>
+       float luma = dot(diffuseColor.rgb, vec3(0.299, 0.587, 0.114));
+       normal = normalize(normal - vec3(dFdx(luma), dFdy(luma), 0.0) * 1.5);`,
     );
   };
   const mesh = new THREE.Mesh(geo, material);
-  mesh.position.y = -0.04;
+  mesh.position.y = GRASS_Y;
   mesh.receiveShadow = true;
   return mesh;
 }
 
-function texturedSurface(
-  z0: number,
-  z1: number,
-  steps: number,
-  heightAt: (z: number) => number,
+function gridSamples(grid: SurfaceGrid): { z: number; y: number }[] {
+  const steps = grid.samples - 1;
+  const out: { z: number; y: number }[] = [];
+  for (let i = 0; i < grid.samples; i++) {
+    out.push({ z: grid.z0 + (i / steps) * (grid.z1 - grid.z0), y: grid.heights[i] });
+  }
+  return out;
+}
+
+function driveDeck(
+  grid: SurfaceGrid,
   map: THREE.Texture | null,
-  fallback: number,
-  metersPerTile: number,
+  blend: THREE.Texture | null,
+  dirt: THREE.Texture | null,
+  tile: number,
   roughness: number,
   metalness: number,
-): THREE.Mesh {
-  const nx = 10;
+  mode: 'road' | 'dirt',
+): THREE.Group {
+  const samples = gridSamples(grid);
+  const nx = 8;
+  const steps = samples.length - 1;
   const positions: number[] = [];
   const uvs: number[] = [];
   const indices: number[] = [];
   const row = nx + 1;
-  for (let iz = 0; iz <= steps; iz++) {
-    const z = z0 + ((z1 - z0) * iz) / steps;
-    const y = heightAt(z);
+  for (let iz = 0; iz < samples.length; iz++) {
+    const { z, y } = samples[iz];
     for (let ix = 0; ix <= nx; ix++) {
       const x = -TRACK_HALF_WIDTH + (2 * TRACK_HALF_WIDTH * ix) / nx;
       positions.push(x, y, z);
-      uvs.push(x / metersPerTile, z / metersPerTile);
+      uvs.push(x / tile, z / tile);
     }
   }
   for (let iz = 0; iz < steps; iz++) {
     for (let ix = 0; ix < nx; ix++) {
       const a = iz * row + ix;
-      const b = a + 1;
-      const c = a + row;
-      const d = c + 1;
-      indices.push(a, c, b, b, c, d);
+      indices.push(a, a + row, a + 1, a + 1, a + row, a + row + 1);
     }
   }
   const geo = new THREE.BufferGeometry();
@@ -176,22 +218,81 @@ function texturedSurface(
   geo.computeVertexNormals();
   const material = new THREE.MeshStandardMaterial({
     map: map ?? undefined,
-    color: map ? 0xffffff : fallback,
+    color: map ? 0xffffff : mode === 'road' ? 0x3a4150 : 0xc4a574,
     roughness,
     metalness,
+    polygonOffset: true,
+    polygonOffsetFactor: 1,
+    polygonOffsetUnits: 1,
   });
-  if (map) material.onBeforeCompile = (shader) => {
+  material.onBeforeCompile = (shader) => {
+    shader.uniforms.blendMap = { value: blend ?? blankTex() };
+    shader.uniforms.dirtMap = { value: dirt ?? blankTex() };
+    shader.vertexShader = `varying vec3 vDeckWorld;\n${shader.vertexShader}`.replace(
+      '#include <project_vertex>',
+      `#include <project_vertex>
+       vDeckWorld = (modelMatrix * vec4(transformed, 1.0)).xyz;`,
+    );
+    shader.fragmentShader = `varying vec3 vDeckWorld;\nuniform sampler2D blendMap;\nuniform sampler2D dirtMap;\n${shader.fragmentShader}`;
+    const mixBlock = mode === 'road'
+      ? `float rampMix = smoothstep(49.0, 52.5, vDeckWorld.z);
+         diffuseColor.rgb = mix(diffuseColor.rgb, blendCol, rampMix);
+         diffuseColor.rgb = mix(diffuseColor.rgb, dirtCol, edge * (1.0 - rampMix));
+         float wear = smoothstep(0.55, 0.92, fract(sin(dot(vDeckWorld.xz, vec2(12.9898, 78.233))) * 43758.5453));
+         diffuseColor.rgb *= mix(1.0, 0.84, wear * (1.0 - rampMix) * 0.65);`
+      : `diffuseColor.rgb = mix(diffuseColor.rgb, blendCol, edge * 0.28);`;
     shader.fragmentShader = shader.fragmentShader.replace(
       '#include <map_fragment>',
       `#include <map_fragment>
-       float macro = 0.5 + 0.5 * sin(vMapUv.x * 2.3) * sin(vMapUv.y * 1.8);
-       diffuseColor.rgb *= mix(0.92, 1.06, macro);`,
+       vec3 blendCol = texture2D(blendMap, vMapUv).rgb;
+       vec3 dirtCol = texture2D(dirtMap, vMapUv * 0.8).rgb;
+       float edge = smoothstep(5.2, 8.6, abs(vDeckWorld.x));
+       float macro = 0.5 + 0.5 * sin(vDeckWorld.x * 0.41) * sin(vDeckWorld.z * 0.23);
+       diffuseColor.rgb *= mix(0.9, 1.06, macro);
+       ${mixBlock}`,
+    );
+    shader.fragmentShader = shader.fragmentShader.replace(
+      '#include <normal_fragment_maps>',
+      `#include <normal_fragment_maps>
+       float luma = dot(diffuseColor.rgb, vec3(0.299, 0.587, 0.114));
+       normal = normalize(normal - vec3(dFdx(luma), dFdy(luma), 0.0) * 2.0);`,
     );
   };
-  const mesh = new THREE.Mesh(geo, material);
-  mesh.receiveShadow = true;
-  mesh.castShadow = false;
-  return mesh;
+  const top = new THREE.Mesh(geo, material);
+  top.receiveShadow = true;
+
+  const skirtPos: number[] = [];
+  const skirtUv: number[] = [];
+  const skirtIdx: number[] = [];
+  const pushEdge = (x: number) => {
+    const base = skirtPos.length / 3;
+    for (let iz = 0; iz < samples.length; iz++) {
+      const { z, y } = samples[iz];
+      skirtPos.push(x, y, z, x, y - SKIRT, z);
+      skirtUv.push(z / tile, 0, z / tile, 1);
+    }
+    for (let iz = 0; iz < steps; iz++) {
+      const a = base + iz * 2;
+      skirtIdx.push(a, a + 1, a + 2, a + 2, a + 1, a + 3);
+    }
+  };
+  pushEdge(-TRACK_HALF_WIDTH);
+  pushEdge(TRACK_HALF_WIDTH);
+  const skirtGeo = new THREE.BufferGeometry();
+  skirtGeo.setAttribute('position', new THREE.Float32BufferAttribute(skirtPos, 3));
+  skirtGeo.setAttribute('uv', new THREE.Float32BufferAttribute(skirtUv, 2));
+  skirtGeo.setIndex(skirtIdx);
+  skirtGeo.computeVertexNormals();
+  const skirtMat = new THREE.MeshStandardMaterial({
+    color: mode === 'road' ? 0x6b5340 : 0x8a704c,
+    roughness: 0.94,
+    metalness: 0.02,
+  });
+  const skirt = new THREE.Mesh(skirtGeo, skirtMat);
+  skirt.receiveShadow = true;
+  const group = new THREE.Group();
+  group.add(top, skirt);
+  return group;
 }
 
 function scatterTrees(atlas: THREE.Texture | null, meta: TreeMeta[], count: number): { foliage: THREE.InstancedMesh; shadows: THREE.InstancedMesh } {
@@ -333,6 +434,171 @@ function mulberry32(seed: number): () => number {
   };
 }
 
+function decalMat(color: number): THREE.MeshStandardMaterial {
+  return new THREE.MeshStandardMaterial({
+    color,
+    roughness: 0.5,
+    polygonOffset: true,
+    polygonOffsetFactor: -2,
+    polygonOffsetUnits: -2,
+  });
+}
+
+function edgeLines(): THREE.Mesh {
+  const geos: THREE.BufferGeometry[] = [];
+  for (const x of [-7.15, 7.15]) {
+    const line = new THREE.BoxGeometry(0.14, 0.02, 46);
+    line.translate(x, 0.02, 24);
+    geos.push(line);
+  }
+  const mesh = new THREE.Mesh(mergeGeometries(geos) ?? new THREE.BufferGeometry(), decalMat(0xf7f4ec));
+  mesh.receiveShadow = true;
+  return mesh;
+}
+
+function rampBuild(wood: THREE.Texture | null): THREE.Group {
+  const group = new THREE.Group();
+  const timber = new THREE.MeshStandardMaterial({ map: wood ?? undefined, color: wood ? 0xffffff : 0x8a5a2b, roughness: 0.84 });
+  const metal = new THREE.MeshStandardMaterial({ color: 0xc5ced6, metalness: 0.82, roughness: 0.28 });
+  const boltMat = new THREE.MeshStandardMaterial({ color: 0x2a2e33, metalness: 0.6, roughness: 0.4 });
+  const launch = enabledLaunch();
+  for (let z = launch.z + 3; z < launch.z + launch.length - 1; z += 3.2) {
+    const h = launchHeight(z);
+    if (h < 1.2) continue;
+    const postH = h - 0.55;
+    for (const x of [-6.4, 6.4]) {
+      const post = new THREE.Mesh(new THREE.BoxGeometry(0.28, postH, 0.28), timber);
+      post.position.set(x, postH * 0.5 - 0.1, z);
+      post.castShadow = true;
+      group.add(post);
+    }
+    const brace = new THREE.Mesh(new THREE.BoxGeometry(12.4, 0.14, 0.14), metal);
+    brace.position.set(0, Math.min(h - 0.75, Math.max(0.4, h * 0.4)), z);
+    brace.castShadow = true;
+    group.add(brace);
+    for (const x of [-8.05, 8.05]) {
+      const bolt = new THREE.Mesh(new THREE.SphereGeometry(0.07, 8, 6), boltMat);
+      bolt.position.set(x, h + 0.95, z);
+      group.add(bolt);
+    }
+  }
+  return group;
+}
+
+function pond(sand: THREE.Texture | null): THREE.Group {
+  const group = new THREE.Group();
+  const shore = new THREE.Mesh(
+    new THREE.CircleGeometry(9.2, 28),
+    new THREE.MeshStandardMaterial({ map: sand ?? undefined, color: sand ? 0xffffff : 0xd8c39a, roughness: 0.95 }),
+  );
+  shore.rotation.x = -Math.PI / 2;
+  shore.position.set(0, -0.48, 88);
+  const water = new THREE.Mesh(
+    new THREE.CircleGeometry(7.2, 28),
+    new THREE.MeshStandardMaterial({ color: 0x3aa4c8, roughness: 0.12, metalness: 0.18, transparent: true, opacity: 0.88 }),
+  );
+  water.rotation.x = -Math.PI / 2;
+  water.position.set(0, -0.42, 88);
+  group.add(shore, water);
+  return group;
+}
+
+function quarterPipe(wood: THREE.Texture | null): THREE.Group {
+  const group = new THREE.Group();
+  const deck = new THREE.MeshStandardMaterial({ map: wood ?? undefined, color: wood ? 0xfff2e4 : 0xc46a1a, roughness: 0.72 });
+  const rail = new THREE.MeshStandardMaterial({ color: 0xf4f1ea, roughness: 0.45 });
+  const radius = 6;
+  for (let i = 0; i <= 8; i++) {
+    const a = (i / 8) * (Math.PI / 2);
+    const y = Math.sin(a) * radius;
+    const z = 124 + Math.cos(a) * radius;
+    const slab = new THREE.Mesh(new THREE.BoxGeometry(3.6, 0.28, 0.95), deck);
+    slab.position.set(20, y, z);
+    slab.rotation.x = -a;
+    slab.castShadow = true;
+    slab.receiveShadow = true;
+    group.add(slab);
+    for (const side of [-1.7, 1.7]) {
+      const bar = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.28, 0.95), rail);
+      bar.position.set(20 + side, y + 0.28, z);
+      bar.rotation.x = -a;
+      group.add(bar);
+    }
+  }
+  return group;
+}
+
+function tuftTexture(): THREE.Texture {
+  const canvas = document.createElement('canvas');
+  canvas.width = 128;
+  canvas.height = 128;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return blankTex();
+  ctx.clearRect(0, 0, 128, 128);
+  for (let i = 0; i < 8; i++) {
+    ctx.strokeStyle = i % 2 === 0 ? '#2f8a34' : '#b6e36a';
+    ctx.lineWidth = 5;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(28 + i * 8, 122);
+    ctx.quadraticCurveTo(22 + i * 10, 70, 18 + i * 11, 28 + (i % 3) * 10);
+    ctx.stroke();
+  }
+  ctx.fillStyle = '#ff6b9a';
+  ctx.beginPath();
+  ctx.arc(100, 40, 11, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#ffe14a';
+  ctx.beginPath();
+  ctx.arc(100, 40, 4.5, 0, Math.PI * 2);
+  ctx.fill();
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+function grassTufts(count: number): THREE.InstancedMesh {
+  const geo = new THREE.PlaneGeometry(0.55, 0.85);
+  const mat = new THREE.MeshStandardMaterial({
+    map: tuftTexture(),
+    alphaTest: 0.35,
+    roughness: 0.9,
+    side: THREE.DoubleSide,
+  });
+  const mesh = new THREE.InstancedMesh(geo, mat, count);
+  mesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(count * 3), 3);
+  const rand = mulberry32(0xc0ffee);
+  const dummy = new THREE.Object3D();
+  const color = new THREE.Color();
+  let placed = 0;
+  let guard = 0;
+  while (placed < count && guard < count * 20) {
+    guard += 1;
+    const side = rand() < 0.5 ? -1 : 1;
+    const x = side * (10.4 + rand() * 4.2);
+    const z = -4 + rand() * 176;
+    if (Math.abs(x) < 10) continue;
+    const h = 0.45 + rand() * 0.55;
+    dummy.position.set(x, GRASS_Y + h * 0.5, z);
+    dummy.rotation.set(0, rand() * Math.PI, 0);
+    dummy.scale.set(0.8 + rand() * 0.7, h / 0.85, 1);
+    dummy.updateMatrix();
+    mesh.setMatrixAt(placed, dummy.matrix);
+    const tint = rand();
+    if (tint > 0.82) color.setHex(0xffd0e0);
+    else if (tint > 0.68) color.setHex(0xfff3a1);
+    else color.set(0.85 + rand() * 0.15, 1, 0.85 + rand() * 0.1);
+    mesh.setColorAt(placed, color);
+    placed += 1;
+  }
+  mesh.instanceMatrix.needsUpdate = true;
+  if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+  mesh.castShadow = false;
+  mesh.receiveShadow = false;
+  mesh.frustumCulled = false;
+  return mesh;
+}
+
 function dashes(): THREE.Mesh {
   const geos: THREE.BufferGeometry[] = [];
   for (let z = 2; z < 48; z += 4) {
@@ -341,7 +607,7 @@ function dashes(): THREE.Mesh {
     geos.push(dash);
   }
   const merged = mergeGeometries(geos);
-  const mesh = new THREE.Mesh(merged ?? new THREE.BufferGeometry(), new THREE.MeshStandardMaterial({ color: 0xf4f1ea, roughness: 0.55 }));
+  const mesh = new THREE.Mesh(merged ?? new THREE.BufferGeometry(), decalMat(0xf4f1ea));
   mesh.receiveShadow = true;
   return mesh;
 }
@@ -359,10 +625,7 @@ function chevrons(): THREE.Mesh {
     }
   }
   const merged = mergeGeometries(geos);
-  return new THREE.Mesh(
-    merged ?? new THREE.BufferGeometry(),
-    new THREE.MeshStandardMaterial({ color: 0xfff3a1, roughness: 0.45 }),
-  );
+  return new THREE.Mesh(merged ?? new THREE.BufferGeometry(), decalMat(0xfff3a1));
 }
 
 function barriers(): THREE.Group {
@@ -393,9 +656,9 @@ function lipChecks(): THREE.Mesh {
   }
   const mesh = new THREE.Mesh(
     mergeGeometries(light) ?? new THREE.BufferGeometry(),
-    new THREE.MeshStandardMaterial({ color: 0xf2f2f2, roughness: 0.5 }),
+    decalMat(0xf2f2f2),
   );
-  mesh.add(new THREE.Mesh(mergeGeometries(darks) ?? new THREE.BufferGeometry(), new THREE.MeshStandardMaterial({ color: 0x1c1c1e, roughness: 0.55 })));
+  mesh.add(new THREE.Mesh(mergeGeometries(darks) ?? new THREE.BufferGeometry(), decalMat(0x1c1c1e)));
   return mesh;
 }
 

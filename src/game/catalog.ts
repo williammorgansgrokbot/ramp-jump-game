@@ -15,7 +15,7 @@ export const CARS: CarConfig[] = [
   { id: 'boy1', name: 'BOY 1', numeral: '1', body: '#ff3b30', accent: '#ffd60a', roof: '#fff7ea', plate: '#1c1c1e' },
   { id: 'boy2', name: 'BOY 2', numeral: '2', body: '#0a84ff', accent: '#64d2ff', roof: '#f4fbff', plate: '#102033' },
   { id: 'boy3', name: 'BOY 3', numeral: '3', body: '#30d158', accent: '#ffd60a', roof: '#f3fff6', plate: '#102816' },
-  { id: 'boy4', name: 'BOY 4', numeral: '4', body: '#bf5af2', accent: '#ff9f0a', roof: '#fff5fb', plate: '#2a1433' },
+  { id: 'boy4', name: 'BOY 4', numeral: '4', body: '#ffd60a', accent: '#ff9f0a', roof: '#fff8e6', plate: '#3a2a08' },
 ];
 
 export function carById(id: string): CarConfig {
@@ -24,8 +24,9 @@ export function carById(id: string): CarConfig {
 
 /**
  * Track pieces. Phase 1 builds the enabled launch ramp.
- * Loop, quarter-pipe, gap, and mega stay in the list so Phase 2 can turn them on
- * and add a builder in `terrain.ts` (`heightForRamp`).
+ * Loop, quarter-pipe, gap, and mega stay disabled. Turning them on would retune
+ * the launch that already clears the gap. The world draws a scenic quarter-pipe
+ * and a pond under that gap without adding colliders.
  */
 export type RampKind = 'launch' | 'loop' | 'quarter-pipe' | 'gap' | 'mega';
 

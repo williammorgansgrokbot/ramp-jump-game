@@ -9,7 +9,7 @@ import { Input } from './input';
 import { Particles } from './particles';
 import { DriveWorld, type ContactPoint, type DrivePose } from './physics';
 import { initialQuality, isIOS, stepDown, type Quality } from './quality';
-import { SPAWN } from './terrain';
+import { driveSurfaceHeight, SPAWN } from './terrain';
 import { HORIZON, SKY_TINT, SUN_DIR, buildWorld, type WorldView } from './worldMesh';
 
 export interface GameStats {
@@ -89,6 +89,12 @@ export class Game {
   private stuck = 0;
   private snapCam = true;
   private crunchCooldown = 0;
+  private slow = 0;
+  private prevVy = 0;
+  private wasAir = false;
+  private shakeAmp = 0;
+  private speedEl: HTMLElement | null = null;
+  private contact: THREE.Mesh | null = null;
   private readonly look = new THREE.Vector3();
   private readonly desired = new THREE.Vector3();
   private readonly lookTarget = new THREE.Vector3();
@@ -111,7 +117,7 @@ export class Game {
     await this.makeRenderer(canvas, this.quality.antialias);
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1;
+    this.renderer.toneMappingExposure = 1.05;
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
     this.renderer.setPixelRatio(this.quality.dpr);
@@ -129,13 +135,13 @@ export class Game {
     this.sun.castShadow = true;
     this.sun.shadow.mapSize.set(this.quality.shadowMap, this.quality.shadowMap);
     this.sun.shadow.camera.near = 4;
-    this.sun.shadow.camera.far = 72;
-    this.sun.shadow.camera.left = -16;
-    this.sun.shadow.camera.right = 16;
-    this.sun.shadow.camera.top = 16;
-    this.sun.shadow.camera.bottom = -16;
-    this.sun.shadow.bias = -0.00035;
-    this.sun.shadow.normalBias = 0.045;
+    this.sun.shadow.camera.far = 56;
+    this.sun.shadow.camera.left = -12;
+    this.sun.shadow.camera.right = 12;
+    this.sun.shadow.camera.top = 12;
+    this.sun.shadow.camera.bottom = -12;
+    this.sun.shadow.bias = -0.0004;
+    this.sun.shadow.normalBias = 0.04;
     this.scene.add(this.sun, this.sun.target);
     const fill = new THREE.DirectionalLight(0xcfe6ff, 0.4);
     fill.position.set(20, 12, -10);
@@ -157,6 +163,7 @@ export class Game {
       this.worldView = await buildWorld(this.scene, this.renderer, {
         hiPano: this.quality.hiPano,
         treeCount: this.quality.treeCount,
+        tuftCount: this.quality.level === 'high' ? 140 : this.quality.level === 'medium' ? 80 : 28,
         anisotropy: this.anisotropy(),
       });
       this.stats.assets = 'ok';
@@ -176,6 +183,7 @@ export class Game {
     }
     this.car = new ToyCar(this.config);
     this.scene.add(this.car.group);
+    this.addContact();
     this.particles = new Particles(this.scene, this.quality.particles);
     this.setupBloom();
     this.input.attach(() => this.sfx.unlock());
@@ -237,7 +245,7 @@ export class Game {
     if (!this.useBloom) return;
     this.composer = new EffectComposer(this.renderer);
     this.composer.addPass(new RenderPass(this.scene, this.camera));
-    this.bloom = new UnrealBloomPass(new THREE.Vector2(1, 1), 0.14, 0.28, 0.94);
+    this.bloom = new UnrealBloomPass(new THREE.Vector2(1, 1), 0.16, 0.32, 0.9);
     this.composer.addPass(this.bloom);
     this.resize();
   }
@@ -256,7 +264,9 @@ export class Game {
     const command = this.input.sample();
     if (command.restart) this.restart();
 
-    this.accum += dt;
+    const timeScale = this.slow > 0 ? 0.34 : 1;
+    if (this.slow > 0) this.slow = Math.max(0, this.slow - dt);
+    this.accum += dt * timeScale;
     let steps = 0;
     let landed: {
       fallSpeed: number;
@@ -309,6 +319,12 @@ export class Game {
     this.publish(this.pose);
     this.watchStuck(dt, this.pose);
 
+    if (this.pose.airborne && this.prevVy > 0.35 && this.pose.vy <= 0 && this.pose.y > 7.5) this.slow = 0.42;
+    this.prevVy = this.pose.vy;
+    if (this.pose.airborne && !this.wasAir && this.pose.speed > 9) this.sfx.whoosh();
+    this.wasAir = this.pose.airborne;
+    this.paintSpeed();
+
     if (landed) this.crunch(landed.contact, landed.fallSpeed, true, landed);
     for (const hit of extras) {
       if (this.crunchCooldown <= 0) this.crunch(hit, Math.min(12, hit.force / 900), false, this.pose);
@@ -355,6 +371,13 @@ export class Game {
     this.sfx.crunch(strength);
     if (strength < 0.7) this.sfx.boing();
     this.particles.sparksAt(contact.x, contact.y, contact.z, strength);
+    if (celebrate) {
+      this.sfx.jingle();
+      this.particles.dustBurst(contact.x, contact.y, contact.z);
+      this.shakeAmp = Math.max(this.shakeAmp, 0.14 + strength * 0.32);
+    } else if (strength > 0.35) {
+      this.shakeAmp = Math.max(this.shakeAmp, strength * 0.16);
+    }
 
     const ranked = this.car.parts
       .filter((part) => !part.detached && fallSpeed + (celebrate ? 0.5 : 0) >= part.minSpeed)
@@ -477,9 +500,12 @@ export class Game {
 
   private followCamera(dt: number, pose: DrivePose): void {
     const yaw = Math.atan2(2 * (pose.qw * pose.qy + pose.qx * pose.qz), 1 - 2 * (pose.qy * pose.qy + pose.qz * pose.qz));
-    const dist = 7.1;
-    this.desired.set(pose.x - Math.sin(yaw) * dist, pose.y + 2.9, pose.z - Math.cos(yaw) * dist);
-    this.lookTarget.set(pose.x + Math.sin(yaw) * 3.2, pose.y + 1.15, pose.z + Math.cos(yaw) * 3.2);
+    const air = pose.airborne ? 1 : 0;
+    const dist = 7.3 + Math.min(pose.speed, 28) * 0.07 + air * 1.5;
+    const height = 2.7 + Math.min(pose.speed, 28) * 0.02 + air * 0.7;
+    const ahead = 3.3 + Math.min(pose.speed, 30) * 0.07;
+    this.desired.set(pose.x - Math.sin(yaw) * dist, pose.y + height, pose.z - Math.cos(yaw) * dist);
+    this.lookTarget.set(pose.x + Math.sin(yaw) * ahead, pose.y + 1.1, pose.z + Math.cos(yaw) * ahead);
     if (this.snapCam) {
       this.camera.position.copy(this.desired);
       this.look.copy(this.lookTarget);
@@ -489,7 +515,15 @@ export class Game {
       this.camera.position.lerp(this.desired, k);
       this.look.lerp(this.lookTarget, k);
     }
+    if (this.shakeAmp > 0) {
+      this.camera.position.x += (Math.random() - 0.5) * this.shakeAmp;
+      this.camera.position.y += (Math.random() - 0.5) * this.shakeAmp * 0.55;
+      this.shakeAmp = Math.max(0, this.shakeAmp - dt * 1.15);
+    }
+    const ground = driveSurfaceHeight(this.camera.position.z);
+    if (ground !== null && this.camera.position.y < ground + 0.55) this.camera.position.y = ground + 0.55;
     this.camera.lookAt(this.look);
+    this.placeContact(pose);
     const fov = 58 + Math.min(pose.speed, 32) * 0.42;
     if (Math.abs(this.camera.fov - fov) > 0.25) {
       this.camera.fov = fov;
@@ -565,6 +599,42 @@ export class Game {
       `y ${s.position.y.toFixed(2)}  z ${s.position.z.toFixed(1)}`,
       s.boot,
     ].filter(Boolean).join('\n');
+  }
+
+  private addContact(): void {
+    const canvas = document.createElement('canvas');
+    canvas.width = 64;
+    canvas.height = 64;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    const gradient = ctx.createRadialGradient(32, 32, 4, 32, 32, 32);
+    gradient.addColorStop(0, 'rgba(0,0,0,0.5)');
+    gradient.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, 64, 64);
+    const map = new THREE.CanvasTexture(canvas);
+    this.contact = new THREE.Mesh(
+      new THREE.PlaneGeometry(2.1, 2.4),
+      new THREE.MeshBasicMaterial({ map, transparent: true, depthWrite: false, opacity: 0.42, toneMapped: true }),
+    );
+    this.contact.rotation.x = -Math.PI / 2;
+    this.contact.renderOrder = 2;
+    this.scene.add(this.contact);
+  }
+
+  private placeContact(pose: DrivePose): void {
+    if (!this.contact) return;
+    const ground = driveSurfaceHeight(pose.z);
+    this.contact.visible = pose.wheelsOn > 0 && ground !== null;
+    if (ground === null) return;
+    this.contact.position.set(pose.x, ground + 0.035, pose.z);
+  }
+
+  private paintSpeed(): void {
+    if (!this.speedEl) this.speedEl = document.getElementById('speed');
+    if (!this.speedEl || !this.pose) return;
+    const kick = this.quality.level === 'low' ? 0 : THREE.MathUtils.clamp((this.pose.speed - 11) / 22, 0, 1);
+    this.speedEl.style.opacity = kick > 0.04 ? String(kick * 0.65) : '0';
   }
 
   private paintStars(): void {

@@ -191,7 +191,14 @@ export class Game {
       pad.receiveShadow = true;
       this.scene.add(pad);
     }
-    this.car = new ToyCar(this.config);
+    this.car = await ToyCar.create({
+      base: import.meta.env.BASE_URL,
+      mobile: this.quality.level !== 'high',
+      anisotropy: this.anisotropy(),
+    });
+    this.car.setConfig(this.config);
+    this.drive.fitWheels(this.car.axles());
+    this.drive.settle();
     this.scene.add(this.car.group);
     this.addContact();
     this.particles = new Particles(this.scene, this.quality.particles);
@@ -384,7 +391,7 @@ export class Game {
     this.worldToCar(contact, this.scratch, pose);
     const local = this.scratch.clone();
     let moved = this.car.dent(local, strength);
-    if (celebrate && moved < 8) moved += this.car.dent(new THREE.Vector3(0, -0.08, 0.85), Math.max(strength, 0.55));
+    if (celebrate && moved < 8) moved += this.car.dent(new THREE.Vector3(0, -0.25, 1.15), Math.max(strength, 0.55));
     this.stats.dents += moved;
     this.stats.impacted = true;
     this.stats.maxImpact = Math.max(this.stats.maxImpact, fallSpeed);
@@ -501,6 +508,7 @@ export class Game {
     this.config = next;
     this.stats.carId = next.id;
     this.car?.setConfig(next);
+    if (this.car) this.drive?.fitWheels(this.car.axles());
     document.querySelectorAll<HTMLElement>('[data-car]').forEach((button) => {
       button.classList.toggle('selected', button.dataset.car === next.id);
     });
@@ -537,18 +545,18 @@ export class Game {
   private followCamera(dt: number, pose: DrivePose): void {
     const yaw = Math.atan2(2 * (pose.qw * pose.qy + pose.qx * pose.qz), 1 - 2 * (pose.qy * pose.qy + pose.qz * pose.qz));
     if (this.camMode === 'face') {
-      this.desired.set(pose.x + Math.cos(yaw) * 1.25 + Math.sin(yaw) * 2.7, pose.y + 0.22, pose.z - Math.sin(yaw) * 1.25 + Math.cos(yaw) * 2.7);
-      this.lookTarget.set(pose.x, pose.y + 0.02, pose.z + Math.cos(yaw) * 0.25);
+      this.desired.set(pose.x + Math.cos(yaw) * 2.2 + Math.sin(yaw) * 5.6, pose.y + 0.45, pose.z - Math.sin(yaw) * 2.2 + Math.cos(yaw) * 5.6);
+      this.lookTarget.set(pose.x, pose.y - 0.15, pose.z + Math.cos(yaw) * 0.4);
     } else if (this.camMode === 'side') {
-      this.desired.set(pose.x + Math.cos(yaw) * 3.35, pose.y + 0.15, pose.z - Math.sin(yaw) * 3.35);
-      this.lookTarget.set(pose.x, pose.y - 0.18, pose.z);
+      this.desired.set(pose.x + Math.cos(yaw) * 6.4, pose.y + 0.35, pose.z - Math.sin(yaw) * 6.4);
+      this.lookTarget.set(pose.x, pose.y - 0.25, pose.z);
     } else {
     const air = pose.airborne ? 1 : 0;
-    const dist = 7.3 + Math.min(pose.speed, 28) * 0.07 + air * 1.5;
-    const height = 2.7 + Math.min(pose.speed, 28) * 0.02 + air * 0.7;
-    const ahead = 3.3 + Math.min(pose.speed, 30) * 0.07;
+    const dist = 9.4 + Math.min(pose.speed, 28) * 0.07 + air * 1.5;
+    const height = 3.15 + Math.min(pose.speed, 28) * 0.02 + air * 0.7;
+    const ahead = 3.6 + Math.min(pose.speed, 30) * 0.07;
     this.desired.set(pose.x - Math.sin(yaw) * dist, pose.y + height, pose.z - Math.cos(yaw) * dist);
-    this.lookTarget.set(pose.x + Math.sin(yaw) * ahead, pose.y + 1.1, pose.z + Math.cos(yaw) * ahead);
+    this.lookTarget.set(pose.x + Math.sin(yaw) * ahead, pose.y + 0.55, pose.z + Math.cos(yaw) * ahead);
     }
     if (this.snapCam) {
       this.camera.position.copy(this.desired);

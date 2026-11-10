@@ -70,7 +70,7 @@ for (let i = 0; i < 260; i++) {
     const surface = driveSurfaceHeight(wz);
     if (surface === null) continue;
     void wx;
-    const bottom = wy - 0.38 * upY;
+    const bottom = wy - (wheel.radius || 0.5) * upY;
     minClear = Math.min(minClear, bottom - surface);
   }
 }

@@ -118,6 +118,40 @@ export class DriveWorld {
     return new DriveWorld();
   }
 
+  /** True when a downward ray at the start line hits a collider near y=0. */
+  groundUnderSpawn(): boolean {
+    this.world.step();
+    const hit = this.world.castRay(new RAPIER.Ray({ x: SPAWN.x, y: 8, z: SPAWN.z }, { x: 0, y: -1, z: 0 }), 20, true);
+    if (!hit) return false;
+    const y = 8 - hit.timeOfImpact;
+    return y > -0.4 && y < 2;
+  }
+
+  /** Flat catch-floor at the road height, used only if the heightfield did not register. */
+  addSafetyFloor(): void {
+    const body = this.world.createRigidBody(RAPIER.RigidBodyDesc.fixed());
+    this.world.createCollider(
+      RAPIER.ColliderDesc.cuboid(30, 0.4, 100)
+        .setTranslation(0, -0.4, 50)
+        .setFriction(1)
+        .setCollisionGroups(mask(GROUP_WORLD, GROUP_CAR | GROUP_DEBRIS)),
+      body,
+    );
+    this.world.step();
+  }
+
+  /** Drop the car onto its suspension before the first paint, then forget that drop. */
+  settle(): void {
+    for (let i = 0; i < 30; i++) this.step(1 / 60, { throttle: 0, steer: 0 });
+    const y = this.chassis.translation().y;
+    this.seenGround = false;
+    this.wasAirborne = false;
+    this.airTime = 0;
+    this.peakFall = 0;
+    this.maxAirY = y;
+    this.crumpleWindow = 0;
+  }
+
   private constructor() {
     this.world = new RAPIER.World({ x: 0, y: -9.81, z: 0 });
     this.world.timestep = 1 / 60;

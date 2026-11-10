@@ -148,6 +148,24 @@ button.down { transform: translateY(5px) scale(0.94); filter: brightness(0.92); 
   75% { transform: translateX(4px); }
 }
 
+#debug {
+  display: none;
+  position: absolute;
+  left: 8px;
+  bottom: 8px;
+  z-index: 8;
+  margin: 0;
+  max-width: min(92vw, 420px);
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.78);
+  color: #fff;
+  font: 12px/1.4 ui-monospace, monospace;
+  white-space: pre-wrap;
+  pointer-events: none;
+}
+#debug.show { display: block; }
+
 #loading {
   position: absolute;
   inset: 0;

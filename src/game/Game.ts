@@ -8,7 +8,7 @@ import { AXLE, ToyCar, type Detachable } from './carMesh';
 import { Input } from './input';
 import { Particles } from './particles';
 import { DriveWorld, type ContactPoint, type DrivePose } from './physics';
-import { initialQuality, stepDown, type Quality } from './quality';
+import { initialQuality, isIOS, stepDown, type Quality } from './quality';
 import { SPAWN } from './terrain';
 import { HORIZON, SKY_TINT, SUN_DIR, buildWorld, type WorldView } from './worldMesh';
 
@@ -31,6 +31,10 @@ export interface GameStats {
   restarts: number;
   drawCalls: number;
   triangles: number;
+  dpr: number;
+  assets: string;
+  physics: string;
+  boot: string;
 }
 
 const UP = new THREE.Vector3(0, 1, 0);
@@ -55,6 +59,10 @@ export class Game {
     restarts: 0,
     drawCalls: 0,
     triangles: 0,
+    dpr: 1,
+    assets: 'pending',
+    physics: 'pending',
+    boot: '',
   };
 
   private renderer!: THREE.WebGLRenderer;
@@ -105,7 +113,7 @@ export class Game {
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1;
     this.renderer.shadowMap.enabled = true;
-    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    this.renderer.shadowMap.type = THREE.PCFShadowMap;
     this.renderer.setPixelRatio(this.quality.dpr);
     this.renderer.setClearColor(HORIZON, 1);
 
@@ -137,16 +145,35 @@ export class Game {
     window.addEventListener('resize', () => this.resize());
     window.visualViewport?.addEventListener('resize', () => this.resize());
 
-    const [drive, worldView] = await Promise.all([
-      DriveWorld.create(),
-      buildWorld(this.scene, this.renderer, {
+    this.drive = await DriveWorld.create();
+    if (this.drive.groundUnderSpawn()) {
+      this.stats.physics = 'track';
+    } else {
+      this.drive.addSafetyFloor();
+      this.stats.physics = this.drive.groundUnderSpawn() ? 'safety-floor' : 'no-ground';
+    }
+    this.drive.settle();
+    try {
+      this.worldView = await buildWorld(this.scene, this.renderer, {
         hiPano: this.quality.hiPano,
         treeCount: this.quality.treeCount,
-        anisotropy: this.renderer.capabilities.getMaxAnisotropy(),
-      }),
-    ]);
-    this.drive = drive;
-    this.worldView = worldView;
+        anisotropy: this.anisotropy(),
+      });
+      this.stats.assets = 'ok';
+    } catch (err) {
+      this.stats.assets = 'fallback';
+      this.stats.boot = err instanceof Error ? err.message : String(err);
+      console.info('Scene assets fell back', err);
+      this.worldView = { update() {} };
+      const pad = new THREE.Mesh(
+        new THREE.PlaneGeometry(80, 200),
+        new THREE.MeshStandardMaterial({ color: 0x3f9a45, roughness: 1 }),
+      );
+      pad.rotation.x = -Math.PI / 2;
+      pad.position.set(0, 0, 60);
+      pad.receiveShadow = true;
+      this.scene.add(pad);
+    }
     this.car = new ToyCar(this.config);
     this.scene.add(this.car.group);
     this.particles = new Particles(this.scene, this.quality.particles);
@@ -157,28 +184,52 @@ export class Game {
 
     document.getElementById('loading')?.classList.add('hidden');
     this.stats.ready = true;
+    this.stats.dpr = this.quality.dpr;
     window.__game = this.stats;
+    if (new URLSearchParams(location.search).get('debug') === '1') this.showDebug();
+    window.addEventListener('touchstart', (event) => {
+      if (event.touches.length >= 3) this.showDebug();
+    }, { passive: true });
+    this.paintDebug();
     this.last = performance.now();
     this.renderer.setAnimationLoop((time) => this.frame(time));
   }
 
   private async makeRenderer(canvas: HTMLCanvasElement, antialias: boolean): Promise<void> {
     const params = new URLSearchParams(location.search);
-    const tryWebGPU = params.get('webgpu') === '1' || (!navigator.webdriver && 'gpu' in navigator);
+    const forced = params.get('webgpu');
+    // Real iPhones and iPads (including iPadOS desktop UA) stay on WebGL2 unless ?webgpu=1,
+    // and only if the renderer actually exposes a working WebGL-compatible backend.
+    const tryWebGPU = forced === '1' || (forced !== '0' && !isIOS() && !navigator.webdriver && 'gpu' in navigator);
     if (tryWebGPU) {
       try {
         const mod = await import('three/webgpu');
         const gpu = new mod.WebGPURenderer({ canvas, antialias, powerPreference: 'high-performance' });
         await gpu.init();
+        if (!rendererUsable(gpu)) {
+          gpu.dispose?.();
+          throw new Error('WebGPU renderer has no usable capabilities');
+        }
         this.renderer = gpu as unknown as THREE.WebGLRenderer;
         this.stats.renderer = 'webgpu';
         return;
       } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        this.stats.boot = `webgpu: ${message}`;
         console.info('WebGPU unavailable, using WebGL2', err);
       }
     }
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias, powerPreference: 'high-performance', alpha: false });
     this.stats.renderer = 'webgl2';
+  }
+
+  private anisotropy(): number {
+    try {
+      const value = this.renderer.capabilities?.getMaxAnisotropy?.();
+      return typeof value === 'number' ? value : 4;
+    } catch {
+      return 4;
+    }
   }
 
   private setupBloom(): void {
@@ -197,9 +248,9 @@ export class Game {
     this.fpsSmooth = this.fpsSmooth * 0.9 + (1 / Math.max(dt, 0.001)) * 0.1;
     this.stats.fps = Math.round(this.fpsSmooth);
     this.qualityTimer += dt;
-    if (this.qualityTimer > 2.4 && this.fpsSmooth < 40) {
+    if (this.qualityTimer > 6 && this.fpsSmooth < 40) {
       this.qualityTimer = 0;
-      this.applyQuality(stepDown(this.quality));
+      this.applyQuality(stepDown(this.quality, this.fpsSmooth < 24));
     }
 
     const command = this.input.sample();
@@ -277,6 +328,14 @@ export class Game {
     else this.renderer.render(this.scene, this.camera);
     this.stats.drawCalls = this.renderer.info.render.calls;
     this.stats.triangles = this.renderer.info.render.triangles;
+    this.paintDebug();
+  }
+
+  failBoot(err: unknown): void {
+    this.stats.boot = err instanceof Error ? err.message : String(err);
+    this.stats.assets = this.stats.assets === 'pending' ? 'failed' : this.stats.assets;
+    this.showDebug();
+    this.paintDebug();
   }
 
   private crunch(
@@ -490,6 +549,24 @@ export class Game {
     return target;
   }
 
+  private showDebug(): void {
+    document.getElementById('debug')?.classList.add('show');
+  }
+
+  private paintDebug(): void {
+    const el = document.getElementById('debug');
+    if (!el?.classList.contains('show')) return;
+    const s = this.stats;
+    el.textContent = [
+      `renderer ${s.renderer}`,
+      `fps ${s.fps}  dpr ${s.dpr}  ${s.quality}`,
+      `assets ${s.assets}`,
+      `physics ${s.physics}`,
+      `y ${s.position.y.toFixed(2)}  z ${s.position.z.toFixed(1)}`,
+      s.boot,
+    ].filter(Boolean).join('\n');
+  }
+
   private paintStars(): void {
     document.querySelectorAll('#stars .star').forEach((el, index) => {
       el.classList.toggle('on', index < this.stats.stars);
@@ -515,6 +592,7 @@ export class Game {
     const width = window.innerWidth;
     const height = Math.max(1, window.innerHeight);
     this.renderer.setPixelRatio(this.quality.dpr);
+    this.stats.dpr = this.quality.dpr;
     this.renderer.setSize(width, height, false);
     this.camera.aspect = width / height;
     this.camera.updateProjectionMatrix();
@@ -529,6 +607,14 @@ function paintCarButtons(): void {
     if (!button) continue;
     button.style.setProperty('--car', car.body);
     button.style.setProperty('--accent', car.accent);
+  }
+}
+
+function rendererUsable(renderer: { capabilities?: { getMaxAnisotropy?: () => number } }): boolean {
+  try {
+    return typeof renderer.capabilities?.getMaxAnisotropy?.() === 'number';
+  } catch {
+    return false;
   }
 }
 

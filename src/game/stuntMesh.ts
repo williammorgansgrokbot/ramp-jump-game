@@ -1,13 +1,14 @@
 import * as THREE from 'three';
+import type { FieldArt } from './fieldArt';
 import { BOOSTS, GAP, LOOP, loopRibbon, quarterRibbon } from './stunts';
 
 /** Loop, quarter-pipe, pond, and glowing boost arrows. Colliders live in the physics world. */
-export function buildStuntExtras(wood: THREE.Texture | null): THREE.Group {
+export function buildStuntExtras(wood: THREE.Texture | null, art: FieldArt | null = null): THREE.Group {
   const group = new THREE.Group();
-  group.add(ribbonMesh(loopRibbon(), 0xff5a1f, 0.22));
+  group.add(ribbonMesh(loopRibbon(), 0xff5a1f, 0.22, art));
   group.add(ribbonRails(loopRibbon()));
   group.add(loopSupports());
-  group.add(ribbonMesh(quarterRibbon(), 0xf0a202, 0.12));
+  group.add(ribbonMesh(quarterRibbon(), 0xf0a202, 0.12, art));
   group.add(ribbonRails(quarterRibbon()));
   group.add(gapPond());
   for (const pad of BOOSTS) group.add(boostPad(pad.x, pad.z, pad.length));
@@ -15,25 +16,63 @@ export function buildStuntExtras(wood: THREE.Texture | null): THREE.Group {
   return group;
 }
 
-function ribbonMesh(ribbon: { vertices: Float32Array; indices: Uint32Array }, color: number, emissive: number): THREE.Mesh {
+function ribbonMesh(ribbon: { vertices: Float32Array; indices: Uint32Array }, color: number, emissive: number, art: FieldArt | null): THREE.Mesh {
   const geo = new THREE.BufferGeometry();
-  geo.setAttribute('position', new THREE.BufferAttribute(ribbon.vertices.slice(), 3));
+  const positions = ribbon.vertices.slice();
+  geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
   geo.setIndex(new THREE.BufferAttribute(ribbon.indices.slice(), 1));
+  const row = 7;
+  const count = positions.length / 3;
+  const uvs = new Float32Array(count * 2);
+  for (let i = 0; i < count; i++) {
+    const along = Math.floor(i / row);
+    const across = i % row;
+    // Planks run along U in the texture, so U follows the ramp.
+    uvs[i * 2] = along * 0.42;
+    uvs[i * 2 + 1] = across / (row - 1);
+  }
+  geo.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
   geo.computeVertexNormals();
-  const mesh = new THREE.Mesh(
-    geo,
-    new THREE.MeshStandardMaterial({
-      color,
-      roughness: 0.45,
-      metalness: 0.08,
-      emissive: color,
-      emissiveIntensity: emissive,
-      side: THREE.DoubleSide,
-      polygonOffset: true,
-      polygonOffsetFactor: 1,
-      polygonOffsetUnits: 1,
-    }),
-  );
+  const material = new THREE.MeshStandardMaterial({
+    color: art ? 0xffffff : color,
+    map: art?.planks.map,
+    normalMap: art?.planks.normal,
+    roughnessMap: art?.planks.rough,
+    roughness: art ? 1 : 0.45,
+    metalness: 0.06,
+    emissive: color,
+    emissiveIntensity: art ? 0.04 : emissive,
+    side: THREE.DoubleSide,
+    polygonOffset: true,
+    polygonOffsetFactor: 1,
+    polygonOffsetUnits: 1,
+  });
+  if (art) {
+    material.normalScale.set(1, 1);
+    material.onBeforeCompile = (shader) => {
+      shader.uniforms.curbMap = { value: art.curb.map };
+      shader.uniforms.curbNormal = { value: art.curb.normal };
+      shader.fragmentShader = `uniform sampler2D curbMap;\nuniform sampler2D curbNormal;\n${shader.fragmentShader}`;
+      shader.fragmentShader = shader.fragmentShader.replace(
+        '#include <map_fragment>',
+        `#include <map_fragment>
+         float curb = smoothstep(0.18, 0.02, vMapUv.y) + smoothstep(0.82, 0.98, vMapUv.y);
+         diffuseColor.rgb = mix(diffuseColor.rgb, texture2D(curbMap, vec2(vMapUv.x, curb)).rgb, clamp(curb, 0.0, 1.0));`,
+      );
+      shader.fragmentShader = shader.fragmentShader.replace(
+        '#include <normal_fragment_maps>',
+        `#ifdef USE_NORMALMAP_TANGENTSPACE
+          vec3 mapN = texture2D( normalMap, vNormalMapUv ).xyz * 2.0 - 1.0;
+          mapN.xy *= normalScale;
+          float curbEdge = smoothstep(0.18, 0.02, vNormalMapUv.y) + smoothstep(0.82, 0.98, vNormalMapUv.y);
+          vec3 curbN = texture2D( curbNormal, vec2(vNormalMapUv.x, 0.5) ).xyz * 2.0 - 1.0;
+          mapN = normalize(mix(mapN, curbN, clamp(curbEdge, 0.0, 1.0)));
+          normal = normalize( tbn * mapN );
+        #endif`,
+      );
+    };
+  }
+  const mesh = new THREE.Mesh(geo, material);
   mesh.receiveShadow = true;
   mesh.castShadow = true;
   return mesh;

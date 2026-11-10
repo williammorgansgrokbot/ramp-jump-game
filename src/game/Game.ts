@@ -170,7 +170,9 @@ export class Game {
     try {
       this.worldView = await buildWorld(this.scene, this.renderer, {
         hiPano: this.quality.hiPano,
+        hiTex: this.quality.level === 'high',
         treeCount: this.quality.treeCount,
+        propLevel: this.quality.level,
         tuftCount: this.quality.level === 'high' ? 140 : this.quality.level === 'medium' ? 80 : 28,
         anisotropy: this.anisotropy(),
       });

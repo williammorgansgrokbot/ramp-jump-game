@@ -65,6 +65,52 @@ export function groundHeight(z: number): number {
   return Math.max(launchHeight(z), landingHeight(z));
 }
 
+export interface SurfaceGrid {
+  id: string;
+  /** Inclusive sample count along Z. The heightfield uses `samples - 1` cells. */
+  samples: number;
+  z0: number;
+  z1: number;
+  /** Height at each sample. The collider and the visual deck share this array. */
+  heights: Float32Array;
+}
+
+let gridCache: SurfaceGrid[] | null = null;
+
+function buildGrid(id: string, z0: number, z1: number, nz: number, heightAt: (z: number) => number): SurfaceGrid {
+  const samples = nz + 1;
+  const heights = new Float32Array(samples);
+  for (let iz = 0; iz < samples; iz++) {
+    const z = z0 + (iz / nz) * (z1 - z0);
+    heights[iz] = heightAt(z);
+  }
+  return { id, samples, z0, z1, heights };
+}
+
+/** Exact Z samples used by both the heightfield collider and the visible deck. */
+export function surfaceGrids(): SurfaceGrid[] {
+  if (gridCache) return gridCache;
+  const launch = enabledLaunch();
+  const lip = launch.z + launch.length;
+  gridCache = [
+    buildGrid('runway-ramp', -4, lip + 4, 110, (z) => (z >= lip ? launchHeight(lip) : launchHeight(z))),
+    buildGrid('landing', LANDING.z0, LANDING.z1, 60, landingHeight),
+  ];
+  return gridCache;
+}
+
+/** Piecewise-linear drive-surface height. Null in the jump gap and off the ends. */
+export function driveSurfaceHeight(z: number): number | null {
+  for (const grid of surfaceGrids()) {
+    if (z < grid.z0 - 1e-3 || z > grid.z1 + 1e-3) continue;
+    const f = ((z - grid.z0) / (grid.z1 - grid.z0)) * (grid.samples - 1);
+    const i = Math.min(grid.samples - 2, Math.max(0, Math.floor(f)));
+    const u = f - i;
+    return grid.heights[i] * (1 - u) + grid.heights[i + 1] * u;
+  }
+  return null;
+}
+
 export interface HeightFieldSpec {
   id: string;
   nrows: number;
@@ -81,43 +127,31 @@ export interface HeightFieldSpec {
  * (nrows+1) by (ncols+1), column-major as `sampleZ + sampleX * (nrows+1)`.
  * Rows run along Z, columns along X. The field is centered on `translation`.
  */
-function makeField(
-  id: string,
-  z0: number,
-  z1: number,
-  nz: number,
-  heightAt: (z: number) => number,
-  friction: number,
-  restitution: number,
-): HeightFieldSpec {
+function makeField(grid: SurfaceGrid, friction: number, restitution: number): HeightFieldSpec {
   const nx = 6;
-  const rows = nz + 1;
+  const nz = grid.samples - 1;
+  const rows = grid.samples;
   const cols = nx + 1;
   const heights = new Float32Array(rows * cols);
   for (let iz = 0; iz < rows; iz++) {
-    const z = z0 + (iz / nz) * (z1 - z0);
-    const h = heightAt(z);
+    const h = grid.heights[iz];
     for (let ix = 0; ix < cols; ix++) heights[iz + ix * rows] = h;
   }
   return {
-    id,
+    id: grid.id,
     nrows: nz,
     ncols: nx,
     heights,
-    scale: { x: TRACK_HALF_WIDTH * 2, y: 1, z: z1 - z0 },
-    translation: { x: 0, y: 0, z: (z0 + z1) / 2 },
+    scale: { x: TRACK_HALF_WIDTH * 2, y: 1, z: grid.z1 - grid.z0 },
+    translation: { x: 0, y: 0, z: (grid.z0 + grid.z1) / 2 },
     friction,
     restitution,
   };
 }
 
 export function trackFields(): HeightFieldSpec[] {
-  const launch = enabledLaunch();
-  const lip = launch.z + launch.length;
-  return [
-    makeField('runway-ramp', -4, lip + 4, 110, (z) => (z >= lip ? launchHeight(lip) : launchHeight(z)), 0.95, 0.02),
-    makeField('landing', LANDING.z0, LANDING.z1, 60, landingHeight, 0.8, 0.28),
-  ];
+  const [runway, landing] = surfaceGrids();
+  return [makeField(runway, 0.95, 0.02), makeField(landing, 0.8, 0.28)];
 }
 
 export interface BoxSpec {

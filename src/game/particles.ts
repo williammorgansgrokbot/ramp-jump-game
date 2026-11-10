@@ -119,6 +119,12 @@ export class Particles {
     this.dustCursor %= this.dustState.length;
   }
 
+  dustBurst(x: number, y: number, z: number): void {
+    const n = Math.min(16, this.dustState.length);
+    for (let i = 0; i < n; i++) this.spawn(this.dustState, this.dustPos, this.dustCursor++, x, y, z, 2.4, 0.7, 2.4);
+    this.dustCursor %= this.dustState.length;
+  }
+
   sparksAt(x: number, y: number, z: number, amount: number): void {
     const n = 6 + Math.round(amount * 10);
     for (let i = 0; i < n; i++) this.spawn(this.sparkState, this.sparkPos, this.sparkCursor++, x, y, z, 2.5 + amount * 3, 0.25, 3.5);

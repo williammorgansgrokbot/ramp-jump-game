@@ -31,7 +31,7 @@ There is no menu text. The plates say BOY 1–4 until real names replace them.
 - [Three.js](https://threejs.org/) WebGL2, with an optional WebGPU renderer when `navigator.gpu` exists (or `?webgpu=1`). If WebGPU fails to start, it falls back to WebGL2. Bloom runs on the WebGL2 path.
 - [Rapier](https://rapier.rs/) WASM (`@dimforge/rapier3d-compat`, inlined so GitHub Pages does not need a `.wasm` MIME type) with a raycast vehicle: suspension, engine force, steering. Forward axis is set with Rapier's `setIndexForwardAxis` property.
 - Impact crumple moves shell vertices near the contact. Parts that pass a speed threshold become their own rigid bodies.
-- Lighting uses the CC0 Poly Haven HDRI **Kloofendal 48d Partly Cloudy (Pure Sky)** (1k). The car and track are original procedural meshes so every panel can detach. Sounds are synthesized in WebAudio.
+- The sky is Bill's equirectangular sea panorama (WebP). Phones use the 2048 version and desktop the 4096. Reflections are a PMREM of that panorama, and the sun follows its brightest point. Grass, asphalt, dirt, sand, and the wooden ramp are tiled photos with a slow brightness variation so the repeat is less obvious. Trees are one camera-facing atlas. UI buttons, stars, car pictures, and the home-screen icon are from the same art pack (`art/manifest.json`, ComfyUI). The car shell is still procedural so parts can detach. Sounds are synthesized in WebAudio.
 - Older phones and iPads start at a lower pixel ratio and shadow map. If the frame rate stays under about 40, bloom and resolution step down.
 - PWA: `display: fullscreen` (browsers that cannot do fullscreen use standalone), apple touch icon, safe-area insets, no pinch-zoom or scroll.
 

@@ -1,0 +1,457 @@
+{
+ "generator": "ComfyUI 0.36.0 on Bill CachyOS PC (RTX 5060 Ti 16GB)",
+ "model": "z_image_turbo_fp8_e4m3fn (Z-Image Turbo) + qwen_3_4b text encoder + ae vae; 9 steps, cfg 1.0, euler/simple, ModelSamplingAuraFlow shift 3 (pano_sea_s11 candidate used bf16 weights)",
+ "upscaler": "2xLexicaRRDBNet_Sharp (pano only)",
+ "bg_removal": "rembg isnet-general-use + pymatting foreground estimation, run on the box (no bg-removal weights on the PC)",
+ "files": [
+  {
+   "file": "textures/tex_grass.jpg",
+   "kind": "seamless texture",
+   "size": [
+    1024,
+    1024
+   ],
+   "mode": "RGB",
+   "bytes": 630333,
+   "seed": 8,
+   "prompt": "Bright vivid healthy green lawn grass seen from directly above, short mowed cheerful green grass blades, seamless tileable texture, flat top-down view, perfectly uniform even lighting, no shadows, no vignette, high detail macro photograph",
+   "negative_prompt": "people, text, watermark, logo, border, frame, vignette, perspective, horizon, shadows, uneven lighting, blurry, objects, dark",
+   "note": "seamless via low-frequency flatten + offset crossfade"
+  },
+  {
+   "file": "textures/tex_asphalt.jpg",
+   "kind": "seamless texture",
+   "size": [
+    1024,
+    1024
+   ],
+   "mode": "RGB",
+   "bytes": 441150,
+   "seed": 7,
+   "prompt": "Clean dark grey asphalt road surface seen from directly above, fine gravel grain, subtle, no markings, no cracks, seamless tileable texture, flat top-down view, perfectly uniform even lighting, no shadows, no vignette, high detail macro photograph",
+   "negative_prompt": "people, text, watermark, logo, border, frame, vignette, perspective, horizon, shadows, uneven lighting, blurry, objects, dark",
+   "note": "seamless via low-frequency flatten + offset crossfade"
+  },
+  {
+   "file": "textures/tex_dirt.jpg",
+   "kind": "seamless texture",
+   "size": [
+    1024,
+    1024
+   ],
+   "mode": "RGB",
+   "bytes": 425087,
+   "seed": 7,
+   "prompt": "Packed light brown dirt ground seen from directly above, small pebbles, dry earth, warm tan color, seamless tileable texture, flat top-down view, perfectly uniform even lighting, no shadows, no vignette, high detail macro photograph",
+   "negative_prompt": "people, text, watermark, logo, border, frame, vignette, perspective, horizon, shadows, uneven lighting, blurry, objects, dark",
+   "note": "seamless via low-frequency flatten + offset crossfade"
+  },
+  {
+   "file": "textures/tex_ramp_wood.jpg",
+   "kind": "seamless texture",
+   "size": [
+    1024,
+    1024
+   ],
+   "mode": "RGB",
+   "bytes": 254928,
+   "seed": 8,
+   "prompt": "Bright orange painted wooden planks with visible grain and tiny paint wear, flat top-down, planks running vertically, cheerful toy-like, seamless tileable texture, flat top-down view, perfectly uniform even lighting, no shadows, no vignette, high detail macro photograph",
+   "negative_prompt": "people, text, watermark, logo, border, frame, vignette, perspective, horizon, shadows, uneven lighting, blurry, objects, dark",
+   "note": "seamless via low-frequency flatten + offset crossfade"
+  },
+  {
+   "file": "textures/tex_ramp_metal.jpg",
+   "kind": "seamless texture",
+   "size": [
+    1024,
+    1024
+   ],
+   "mode": "RGB",
+   "bytes": 322726,
+   "seed": 8,
+   "prompt": "Bright orange painted steel diamond plate tread pattern, clean glossy paint, flat top-down, seamless tileable texture, flat top-down view, perfectly uniform even lighting, no shadows, no vignette, high detail macro photograph",
+   "negative_prompt": "people, text, watermark, logo, border, frame, vignette, perspective, horizon, shadows, uneven lighting, blurry, objects, dark",
+   "note": "seamless via low-frequency flatten + offset crossfade"
+  },
+  {
+   "file": "textures/tex_sand.jpg",
+   "kind": "seamless texture",
+   "size": [
+    1024,
+    1024
+   ],
+   "mode": "RGB",
+   "bytes": 420392,
+   "seed": 7,
+   "prompt": "Fine light golden beach sand seen from directly above, soft grains, warm pale yellow color, seamless tileable texture, flat top-down view, perfectly uniform even lighting, no shadows, no vignette, high detail macro photograph",
+   "negative_prompt": "people, text, watermark, logo, border, frame, vignette, perspective, horizon, shadows, uneven lighting, blurry, objects, dark",
+   "note": "seamless via low-frequency flatten + offset crossfade"
+  },
+  {
+   "file": "pano_sea_4096x2048.jpg",
+   "kind": "equirect skybox 2:1, horizontally seamless",
+   "size": [
+    4096,
+    2048
+   ],
+   "prompt": "Photorealistic 360 degree equirectangular panorama photograph, bright sunny day, a calm blue sea stretching to the horizon on one side and green rolling grassy coastal hills on the other, wide open flat meadow in the foreground, vivid saturated blue sky with puffy white cumulus clouds, horizon line exactly at the vertical center of the frame, crisp sharp focus, high dynamic range, professional landscape photography, no people, no vehicles",
+   "negative_prompt": "people, person, cars, vehicles, buildings close up, text, watermark, logo, dark, night, overcast, fog, haze, blurry, cartoon, painting, illustration, black bars, frame",
+   "seed": 22,
+   "note": "2048x1024 base seed 22, seam fixed by roll+inpaint (seed 77, denoise .88), 2x upscaled with 2xLexicaRRDBNet_Sharp"
+  },
+  {
+   "file": "pano_sea_2048x1024.jpg",
+   "kind": "same pano, mobile size",
+   "size": [
+    2048,
+    1024
+   ],
+   "mode": "RGB",
+   "bytes": 567931
+  },
+  {
+   "file": "trees/tree_birch.png",
+   "kind": "tree sprite RGBA",
+   "size": [
+    533,
+    768
+   ],
+   "mode": "RGBA",
+   "bytes": 551952,
+   "seed": 101,
+   "prompt": "A single birch tree with white bark with black marks and bright light-green leaves, isolated on a seamless pure white background, full tree visible from trunk base to top, centered, straight-on side view, soft even daylight, vivid cheerful saturated colors, sharp detailed photograph, studio product photo style, no ground, no shadow",
+   "negative_prompt": "ground, grass field, horizon, sky, clouds, shadow on the ground, multiple trees, people, text, watermark, cartoon, blurry, dark, night, cropped, cut off"
+  },
+  {
+   "file": "trees/tree_bush.png",
+   "kind": "tree sprite RGBA",
+   "size": [
+    839,
+    762
+   ],
+   "mode": "RGBA",
+   "bytes": 1102656,
+   "seed": 101,
+   "prompt": "A single round green leafy bush, dense bright green foliage, low shrub, isolated on a seamless pure white background, full tree visible from trunk base to top, centered, straight-on side view, soft even daylight, vivid cheerful saturated colors, sharp detailed photograph, studio product photo style, no ground, no shadow",
+   "negative_prompt": "ground, grass field, horizon, sky, clouds, shadow on the ground, multiple trees, people, text, watermark, cartoon, blurry, dark, night, cropped, cut off"
+  },
+  {
+   "file": "trees/tree_cherry.png",
+   "kind": "tree sprite RGBA",
+   "size": [
+    721,
+    768
+   ],
+   "mode": "RGBA",
+   "bytes": 827940,
+   "seed": 202,
+   "prompt": "A single cherry blossom tree in full bloom with pink flowers, brown trunk, isolated on a seamless pure white background, full tree visible from trunk base to top, centered, straight-on side view, soft even daylight, vivid cheerful saturated colors, sharp detailed photograph, studio product photo style, no ground, no shadow",
+   "negative_prompt": "ground, grass field, horizon, sky, clouds, shadow on the ground, multiple trees, people, text, watermark, cartoon, blurry, dark, night, cropped, cut off"
+  },
+  {
+   "file": "trees/tree_flowershrub.png",
+   "kind": "tree sprite RGBA",
+   "size": [
+    753,
+    768
+   ],
+   "mode": "RGBA",
+   "bytes": 803001,
+   "seed": 202,
+   "prompt": "A single flowering shrub with pink and magenta blossoms and green leaves, round bushy shape, isolated on a seamless pure white background, full tree visible from trunk base to top, centered, straight-on side view, soft even daylight, vivid cheerful saturated colors, sharp detailed photograph, studio product photo style, no ground, no shadow",
+   "negative_prompt": "ground, grass field, horizon, sky, clouds, shadow on the ground, multiple trees, people, text, watermark, cartoon, blurry, dark, night, cropped, cut off"
+  },
+  {
+   "file": "trees/tree_maple.png",
+   "kind": "tree sprite RGBA",
+   "size": [
+    715,
+    768
+   ],
+   "mode": "RGBA",
+   "bytes": 704167,
+   "seed": 101,
+   "prompt": "A single cheerful maple tree with bright green leaves and a few orange-red leaves, round crown, isolated on a seamless pure white background, full tree visible from trunk base to top, centered, straight-on side view, soft even daylight, vivid cheerful saturated colors, sharp detailed photograph, studio product photo style, no ground, no shadow",
+   "negative_prompt": "ground, grass field, horizon, sky, clouds, shadow on the ground, multiple trees, people, text, watermark, cartoon, blurry, dark, night, cropped, cut off"
+  },
+  {
+   "file": "trees/tree_oak.png",
+   "kind": "tree sprite RGBA",
+   "size": [
+    719,
+    768
+   ],
+   "mode": "RGBA",
+   "bytes": 779919,
+   "seed": 101,
+   "prompt": "A single round leafy oak tree with a thick brown trunk and a full lush bright green rounded crown, isolated on a seamless pure white background, full tree visible from trunk base to top, centered, straight-on side view, soft even daylight, vivid cheerful saturated colors, sharp detailed photograph, studio product photo style, no ground, no shadow",
+   "negative_prompt": "ground, grass field, horizon, sky, clouds, shadow on the ground, multiple trees, people, text, watermark, cartoon, blurry, dark, night, cropped, cut off"
+  },
+  {
+   "file": "trees/tree_palm.png",
+   "kind": "tree sprite RGBA",
+   "size": [
+    605,
+    768
+   ],
+   "mode": "RGBA",
+   "bytes": 597935,
+   "seed": 101,
+   "prompt": "A single tropical coconut palm tree with a gently curved trunk and lush green fronds, isolated on a seamless pure white background, full tree visible from trunk base to top, centered, straight-on side view, soft even daylight, vivid cheerful saturated colors, sharp detailed photograph, studio product photo style, no ground, no shadow",
+   "negative_prompt": "ground, grass field, horizon, sky, clouds, shadow on the ground, multiple trees, people, text, watermark, cartoon, blurry, dark, night, cropped, cut off"
+  },
+  {
+   "file": "trees/tree_pine.png",
+   "kind": "tree sprite RGBA",
+   "size": [
+    511,
+    768
+   ],
+   "mode": "RGBA",
+   "bytes": 537377,
+   "seed": 101,
+   "prompt": "A single tall pine tree, conifer, dense dark-to-bright green needles, straight brown trunk, isolated on a seamless pure white background, full tree visible from trunk base to top, centered, straight-on side view, soft even daylight, vivid cheerful saturated colors, sharp detailed photograph, studio product photo style, no ground, no shadow",
+   "negative_prompt": "ground, grass field, horizon, sky, clouds, shadow on the ground, multiple trees, people, text, watermark, cartoon, blurry, dark, night, cropped, cut off"
+  },
+  {
+   "file": "icons/icon_go.png",
+   "kind": "UI icon RGBA",
+   "size": [
+    846,
+    851
+   ],
+   "mode": "RGBA",
+   "bytes": 486578,
+   "seed": 5,
+   "prompt": "A huge round glossy bright green button with a thick white right-pointing play arrow symbol in the middle, single object centered, isolated on a seamless pure white background, glossy 3D rendered toy-like game UI icon, chunky rounded shapes, soft studio lighting, vibrant saturated colors, high quality, no text",
+   "negative_prompt": "text, letters, words, numbers, watermark, background scene, shadow on floor, realistic photo, dark, dull, people, faces"
+  },
+  {
+   "file": "icons/icon_go_256.png",
+   "kind": "UI icon RGBA 256px",
+   "size": [
+    256,
+    258
+   ],
+   "mode": "RGBA",
+   "bytes": 71199,
+   "seed": 5,
+   "prompt": "A huge round glossy bright green button with a thick white right-pointing play arrow symbol in the middle, single object centered, isolated on a seamless pure white background, glossy 3D rendered toy-like game UI icon, chunky rounded shapes, soft studio lighting, vibrant saturated colors, high quality, no text",
+   "negative_prompt": "text, letters, words, numbers, watermark, background scene, shadow on floor, realistic photo, dark, dull, people, faces"
+  },
+  {
+   "file": "icons/icon_left.png",
+   "kind": "UI icon RGBA",
+   "size": [
+    840,
+    837
+   ],
+   "mode": "RGBA",
+   "bytes": 554369,
+   "seed": 5,
+   "prompt": "A huge round glossy bright blue button with a thick white left-pointing arrow symbol in the middle, single object centered, isolated on a seamless pure white background, glossy 3D rendered toy-like game UI icon, chunky rounded shapes, soft studio lighting, vibrant saturated colors, high quality, no text",
+   "negative_prompt": "text, letters, words, numbers, watermark, background scene, shadow on floor, realistic photo, dark, dull, people, faces"
+  },
+  {
+   "file": "icons/icon_left_256.png",
+   "kind": "UI icon RGBA 256px",
+   "size": [
+    256,
+    255
+   ],
+   "mode": "RGBA",
+   "bytes": 79351,
+   "seed": 5,
+   "prompt": "A huge round glossy bright blue button with a thick white left-pointing arrow symbol in the middle, single object centered, isolated on a seamless pure white background, glossy 3D rendered toy-like game UI icon, chunky rounded shapes, soft studio lighting, vibrant saturated colors, high quality, no text",
+   "negative_prompt": "text, letters, words, numbers, watermark, background scene, shadow on floor, realistic photo, dark, dull, people, faces"
+  },
+  {
+   "file": "icons/icon_right.png",
+   "kind": "UI icon RGBA",
+   "size": [
+    842,
+    843
+   ],
+   "mode": "RGBA",
+   "bytes": 542468,
+   "seed": 5,
+   "prompt": "A huge round glossy bright blue button with a thick white right-pointing arrow symbol in the middle, single object centered, isolated on a seamless pure white background, glossy 3D rendered toy-like game UI icon, chunky rounded shapes, soft studio lighting, vibrant saturated colors, high quality, no text",
+   "negative_prompt": "text, letters, words, numbers, watermark, background scene, shadow on floor, realistic photo, dark, dull, people, faces"
+  },
+  {
+   "file": "icons/icon_right_256.png",
+   "kind": "UI icon RGBA 256px",
+   "size": [
+    256,
+    256
+   ],
+   "mode": "RGBA",
+   "bytes": 77887,
+   "seed": 5,
+   "prompt": "A huge round glossy bright blue button with a thick white right-pointing arrow symbol in the middle, single object centered, isolated on a seamless pure white background, glossy 3D rendered toy-like game UI icon, chunky rounded shapes, soft studio lighting, vibrant saturated colors, high quality, no text",
+   "negative_prompt": "text, letters, words, numbers, watermark, background scene, shadow on floor, realistic photo, dark, dull, people, faces"
+  },
+  {
+   "file": "icons/icon_restart.png",
+   "kind": "UI icon RGBA",
+   "size": [
+    821,
+    824
+   ],
+   "mode": "RGBA",
+   "bytes": 505400,
+   "seed": 5,
+   "prompt": "A huge round glossy bright orange button with a thick white circular refresh arrow symbol in the middle, single object centered, isolated on a seamless pure white background, glossy 3D rendered toy-like game UI icon, chunky rounded shapes, soft studio lighting, vibrant saturated colors, high quality, no text",
+   "negative_prompt": "text, letters, words, numbers, watermark, background scene, shadow on floor, realistic photo, dark, dull, people, faces"
+  },
+  {
+   "file": "icons/icon_restart_256.png",
+   "kind": "UI icon RGBA 256px",
+   "size": [
+    256,
+    257
+   ],
+   "mode": "RGBA",
+   "bytes": 75039,
+   "seed": 5,
+   "prompt": "A huge round glossy bright orange button with a thick white circular refresh arrow symbol in the middle, single object centered, isolated on a seamless pure white background, glossy 3D rendered toy-like game UI icon, chunky rounded shapes, soft studio lighting, vibrant saturated colors, high quality, no text",
+   "negative_prompt": "text, letters, words, numbers, watermark, background scene, shadow on floor, realistic photo, dark, dull, people, faces"
+  },
+  {
+   "file": "icons/icon_star.png",
+   "kind": "UI icon RGBA",
+   "size": [
+    767,
+    744
+   ],
+   "mode": "RGBA",
+   "bytes": 400386,
+   "seed": 5,
+   "prompt": "A single chunky glossy golden yellow five-pointed star with rounded corners, shiny, cheerful, single object centered, isolated on a seamless pure white background, glossy 3D rendered toy-like game UI icon, chunky rounded shapes, soft studio lighting, vibrant saturated colors, high quality, no text",
+   "negative_prompt": "text, letters, words, numbers, watermark, background scene, shadow on floor, realistic photo, dark, dull, people, faces"
+  },
+  {
+   "file": "icons/icon_star_256.png",
+   "kind": "UI icon RGBA 256px",
+   "size": [
+    256,
+    248
+   ],
+   "mode": "RGBA",
+   "bytes": 58257,
+   "seed": 5,
+   "prompt": "A single chunky glossy golden yellow five-pointed star with rounded corners, shiny, cheerful, single object centered, isolated on a seamless pure white background, glossy 3D rendered toy-like game UI icon, chunky rounded shapes, soft studio lighting, vibrant saturated colors, high quality, no text",
+   "negative_prompt": "text, letters, words, numbers, watermark, background scene, shadow on floor, realistic photo, dark, dull, people, faces"
+  },
+  {
+   "file": "icons/icon_tilt.png",
+   "kind": "UI icon RGBA",
+   "size": [
+    836,
+    771
+   ],
+   "mode": "RGBA",
+   "bytes": 459733,
+   "seed": 5,
+   "prompt": "A cute chunky glossy smartphone icon tilted at an angle with two curved white-and-blue arrows on both sides showing rotation, purple and blue colors, single object centered, isolated on a seamless pure white background, glossy 3D rendered toy-like game UI icon, chunky rounded shapes, soft studio lighting, vibrant saturated colors, high quality, no text",
+   "negative_prompt": "text, letters, words, numbers, watermark, background scene, shadow on floor, realistic photo, dark, dull, people, faces"
+  },
+  {
+   "file": "icons/icon_tilt_256.png",
+   "kind": "UI icon RGBA 256px",
+   "size": [
+    256,
+    236
+   ],
+   "mode": "RGBA",
+   "bytes": 57700,
+   "seed": 5,
+   "prompt": "A cute chunky glossy smartphone icon tilted at an angle with two curved white-and-blue arrows on both sides showing rotation, purple and blue colors, single object centered, isolated on a seamless pure white background, glossy 3D rendered toy-like game UI icon, chunky rounded shapes, soft studio lighting, vibrant saturated colors, high quality, no text",
+   "negative_prompt": "text, letters, words, numbers, watermark, background scene, shadow on floor, realistic photo, dark, dull, people, faces"
+  },
+  {
+   "file": "cars/toycar_red_sprite.png",
+   "kind": "toy car 2D sprite RGBA (bonus, not 3D)",
+   "size": [
+    1051,
+    625
+   ],
+   "mode": "RGBA",
+   "bytes": 711566,
+   "seed": 31,
+   "prompt": "A chunky cute glossy toy sports car, bright red paint, big round friendly wheels, rounded smooth shapes, side view slightly from the front three-quarter angle, 3D rendered kids game vehicle, isolated on a seamless pure white background, soft studio lighting, vibrant saturated colors, no text, no people",
+   "negative_prompt": "text, letters, numbers, license plate, logo, brand, people, driver, faces, realistic car, dark, dull, ground, road, shadow, background scene, blurry"
+  },
+  {
+   "file": "cars/toycar_blue_sprite.png",
+   "kind": "toy car 2D sprite RGBA (bonus, not 3D)",
+   "size": [
+    1041,
+    612
+   ],
+   "mode": "RGBA",
+   "bytes": 694614,
+   "seed": 32,
+   "prompt": "A chunky cute glossy toy sports car, bright blue paint, big round friendly wheels, rounded smooth shapes, side view slightly from the front three-quarter angle, 3D rendered kids game vehicle, isolated on a seamless pure white background, soft studio lighting, vibrant saturated colors, no text, no people",
+   "negative_prompt": "text, letters, numbers, license plate, logo, brand, people, driver, faces, realistic car, dark, dull, ground, road, shadow, background scene, blurry"
+  },
+  {
+   "file": "cars/toycar_green_sprite.png",
+   "kind": "toy car 2D sprite RGBA (bonus, not 3D)",
+   "size": [
+    1039,
+    594
+   ],
+   "mode": "RGBA",
+   "bytes": 609814,
+   "seed": 33,
+   "prompt": "A chunky cute glossy toy sports car, bright green paint, big round friendly wheels, rounded smooth shapes, side view slightly from the front three-quarter angle, 3D rendered kids game vehicle, isolated on a seamless pure white background, soft studio lighting, vibrant saturated colors, no text, no people",
+   "negative_prompt": "text, letters, numbers, license plate, logo, brand, people, driver, faces, realistic car, dark, dull, ground, road, shadow, background scene, blurry"
+  },
+  {
+   "file": "cars/toycar_yellow_sprite.png",
+   "kind": "toy car 2D sprite RGBA (bonus, not 3D)",
+   "size": [
+    1039,
+    632
+   ],
+   "mode": "RGBA",
+   "bytes": 655461,
+   "seed": 34,
+   "prompt": "A chunky cute glossy toy sports car, bright yellow paint, big round friendly wheels, rounded smooth shapes, side view slightly from the front three-quarter angle, 3D rendered kids game vehicle, isolated on a seamless pure white background, soft studio lighting, vibrant saturated colors, no text, no people",
+   "negative_prompt": "text, letters, numbers, license plate, logo, brand, people, driver, faces, realistic car, dark, dull, ground, road, shadow, background scene, blurry"
+  },
+  {
+   "file": "app_icon_1024.png",
+   "kind": "app icon (opaque, no text)",
+   "size": [
+    1024,
+    1024
+   ],
+   "mode": "RGB",
+   "bytes": 920383,
+   "seed": 6,
+   "prompt": "A cheerful app icon: a chunky cute red toy sports car mid-air jumping off a giant bright orange ramp, bright blue sky with puffy white clouds, green grass hills, sparkling stars and confetti, vibrant saturated colors, 3D rendered, square composition, centered, no text, no letters",
+   "negative_prompt": "text, letters, words, numbers, watermark, background scene, shadow on floor, realistic photo, dark, dull, people, faces"
+  },
+  {
+   "file": "app_icon_512.png",
+   "kind": "app icon 512",
+   "size": [
+    512,
+    512
+   ],
+   "mode": "RGB",
+   "bytes": 289962,
+   "seed": 6,
+   "prompt": "A cheerful app icon: a chunky cute red toy sports car mid-air jumping off a giant bright orange ramp, bright blue sky with puffy white clouds, green grass hills, sparkling stars and confetti, vibrant saturated colors, 3D rendered, square composition, centered, no text, no letters",
+   "negative_prompt": "text, letters, words, numbers, watermark, background scene, shadow on floor, realistic photo, dark, dull, people, faces"
+  }
+ ],
+ "skipped": {
+  "3d_car_glb": "No Hunyuan3D/TRELLIS weights installed (core nodes exist, but no checkpoints/diffusion models/clip-vision for them); nothing downloaded.",
+  "panorama_lora": "none installed; seam made by roll+inpaint instead",
+  "bg_removal_nodes": "ComfyUI LoadBackgroundRemovalModel list empty, WAS rembg models not present; matting done on the box instead"
+ }
+}

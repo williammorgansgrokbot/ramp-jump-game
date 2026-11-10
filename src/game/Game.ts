@@ -2,8 +2,6 @@ import * as THREE from 'three';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
-import { RGBELoader } from 'three/addons/loaders/RGBELoader.js';
-import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { CARS, carById, type CarConfig } from './catalog';
 import { Sfx } from './audio';
 import { AXLE, ToyCar, type Detachable } from './carMesh';
@@ -12,7 +10,7 @@ import { Particles } from './particles';
 import { DriveWorld, type ContactPoint, type DrivePose } from './physics';
 import { initialQuality, stepDown, type Quality } from './quality';
 import { SPAWN } from './terrain';
-import { buildWorld, type WorldView } from './worldMesh';
+import { HORIZON, SKY_TINT, SUN_DIR, buildWorld, type WorldView } from './worldMesh';
 
 export interface GameStats {
   ready: boolean;
@@ -109,17 +107,17 @@ export class Game {
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.renderer.setPixelRatio(this.quality.dpr);
-    this.renderer.setClearColor(0xc5e8ff, 1);
+    this.renderer.setClearColor(HORIZON, 1);
 
     this.scene = new THREE.Scene();
-    this.scene.fog = new THREE.Fog(0xc5e8ff, 48, 210);
-    this.scene.environmentIntensity = 0.92;
+    this.scene.fog = new THREE.Fog(HORIZON, 95, 260);
+    this.scene.environmentIntensity = 0.72;
     this.camera = new THREE.PerspectiveCamera(58, 1, 0.15, 500);
     this.camera.position.set(0, 4.5, -6);
 
-    const hemi = new THREE.HemisphereLight(0xb7e4ff, 0x3e9a45, 0.55);
+    const hemi = new THREE.HemisphereLight(SKY_TINT, 0x6a7a3e, 0.42);
     this.scene.add(hemi);
-    this.sun = new THREE.DirectionalLight(0xfff4dd, 2.35);
+    this.sun = new THREE.DirectionalLight(0xfff1d4, 1.55);
     this.sun.castShadow = true;
     this.sun.shadow.mapSize.set(this.quality.shadowMap, this.quality.shadowMap);
     this.sun.shadow.camera.near = 4;
@@ -139,9 +137,16 @@ export class Game {
     window.addEventListener('resize', () => this.resize());
     window.visualViewport?.addEventListener('resize', () => this.resize());
 
-    const [drive] = await Promise.all([DriveWorld.create(), this.loadEnvironment()]);
+    const [drive, worldView] = await Promise.all([
+      DriveWorld.create(),
+      buildWorld(this.scene, this.renderer, {
+        hiPano: this.quality.hiPano,
+        treeCount: this.quality.treeCount,
+        anisotropy: this.renderer.capabilities.getMaxAnisotropy(),
+      }),
+    ]);
     this.drive = drive;
-    this.worldView = buildWorld(this.scene);
+    this.worldView = worldView;
     this.car = new ToyCar(this.config);
     this.scene.add(this.car.group);
     this.particles = new Particles(this.scene, this.quality.particles);
@@ -174,19 +179,6 @@ export class Game {
     }
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias, powerPreference: 'high-performance', alpha: false });
     this.stats.renderer = 'webgl2';
-  }
-
-  private async loadEnvironment(): Promise<void> {
-    const pmrem = new THREE.PMREMGenerator(this.renderer);
-    try {
-      const hdr = await new RGBELoader().loadAsync(`${import.meta.env.BASE_URL}hdri/kloofendal_puresky_1k.hdr`);
-      this.scene.environment = pmrem.fromEquirectangular(hdr).texture;
-      hdr.dispose();
-    } catch (err) {
-      console.info('HDRI fallback to procedural environment', err);
-      this.scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
-    }
-    pmrem.dispose();
   }
 
   private setupBloom(): void {
@@ -447,8 +439,8 @@ export class Game {
   }
 
   private followSun(pose: DrivePose): void {
-    this.sun.position.set(pose.x - 18, pose.y + 30, pose.z + 8);
-    this.sun.target.position.set(pose.x, pose.y, pose.z + 4);
+    this.sun.position.set(pose.x + SUN_DIR.x * 40, pose.y + SUN_DIR.y * 40, pose.z + SUN_DIR.z * 40);
+    this.sun.target.position.set(pose.x, pose.y, pose.z);
     this.sun.target.updateMatrixWorld();
   }
 

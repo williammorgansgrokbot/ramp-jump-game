@@ -5,6 +5,9 @@ export interface Quality {
   bloom: boolean;
   antialias: boolean;
   particles: number;
+  /** Desktop uses the 4096 panorama. Phones and low quality use 2048. */
+  hiPano: boolean;
+  treeCount: number;
 }
 
 export function initialQuality(): Quality {
@@ -13,13 +16,14 @@ export function initialQuality(): Quality {
   const touch = window.matchMedia('(pointer: coarse)').matches;
   const mobile = touch || /iPhone|iPad|Android/i.test(navigator.userAgent);
   const native = window.devicePixelRatio || 1;
+  const hiPano = !mobile;
   if (mobile && (memory <= 2 || cores <= 2)) {
-    return { level: 'low', dpr: Math.min(1, native), shadowMap: 512, bloom: false, antialias: false, particles: 40 };
+    return { level: 'low', dpr: Math.min(1, native), shadowMap: 512, bloom: false, antialias: false, particles: 40, hiPano, treeCount: 46 };
   }
   if (mobile) {
-    return { level: 'medium', dpr: Math.min(1.25, native), shadowMap: 1024, bloom: true, antialias: true, particles: 80 };
+    return { level: 'medium', dpr: Math.min(1.25, native), shadowMap: 1024, bloom: true, antialias: true, particles: 80, hiPano, treeCount: 84 };
   }
-  return { level: 'high', dpr: Math.min(1.75, native), shadowMap: 2048, bloom: true, antialias: true, particles: 140 };
+  return { level: 'high', dpr: Math.min(1.75, native), shadowMap: 2048, bloom: true, antialias: true, particles: 140, hiPano, treeCount: 120 };
 }
 
 export function stepDown(quality: Quality): Quality {

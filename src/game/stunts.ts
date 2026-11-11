@@ -115,7 +115,7 @@ export interface LoopSpec {
 
 function buildLoop(): LoopSpec {
   const laneX = 38;
-  const halfW = 2.65;
+  const halfW = 2.75;
   const raw = integrateTeardrop();
   const frames = frameLoop(raw);
   let height = 0;

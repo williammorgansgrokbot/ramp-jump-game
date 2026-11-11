@@ -74,7 +74,7 @@ export async function buildWorld(scene: THREE.Scene, renderer: THREE.WebGLRender
   scene.add(lipChecks());
   scene.add(edgeBulbs());
   scene.add(pond(sand));
-  const extras = buildStuntExtras(wood, field);
+  const extras = await buildStuntExtras(wood, field, { base, mobile: opts.propLevel !== 'high' });
   scene.add(extras);
   if (field) scatterField(scene, field, opts.propLevel);
   else if (opts.tuftCount > 0) scene.add(grassTufts(opts.tuftCount));

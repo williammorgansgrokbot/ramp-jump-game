@@ -688,29 +688,23 @@ export class DriveWorld {
       return;
     }
     const t = this.chassis.translation();
-    const near = Math.abs(t.x - LOOP.laneX) < 5 && t.z > LOOP.zCenter - 6 && t.z < LOOP.zCenter + 1.5 && t.y < this.spec.drop + 1.6;
-    if (!this.loopActive && near && t.z > LOOP.zCenter - 1.6) this.loopActive = true;
+    const near = Math.abs(t.x - LOOP.laneX) < 6 && t.z > LOOP.entryZ - 8 && t.z < LOOP.entryZ + 3 && t.y < this.spec.drop + 1.8;
+    if (!this.loopActive && near && t.z > LOOP.entryZ - 1.2) this.loopActive = true;
     if (!this.loopActive) return;
 
-    const speed = 15;
-    this.loopTheta += (speed / LOOP.radius) * dt;
-    if (this.loopTheta >= Math.PI * 2 - 0.2) {
+    const speed = 16;
+    this.loopTheta += speed * dt;
+    if (this.loopTheta >= LOOP.length - 0.35) {
       this.loopActive = false;
       this.loopDone = true;
-      const exitZ = LOOP.zCenter + LOOP.radius + 6;
-      this.chassis.setTranslation({ x: LOOP.laneX, y: this.spec.drop + 0.05, z: exitZ }, true);
+      this.chassis.setTranslation({ x: LOOP.exitX, y: this.spec.drop + 0.08, z: LOOP.exitZ + 2.5 }, true);
       this.chassis.setRotation({ x: 0, y: 0, z: 0, w: 1 }, true);
       this.chassis.setLinvel({ x: 0, y: 0, z: 16 }, true);
       this.chassis.setAngvel({ x: 0, y: 0, z: 0 }, true);
       return;
     }
     const pose = loopPose(this.loopTheta, this.spec.drop);
-    const rx = pose.up.y * pose.fwd.z - pose.up.z * pose.fwd.y;
-    const quat = quatFromBasis(
-      { x: rx, y: 0, z: 0 },
-      { x: 0, y: pose.up.y, z: pose.up.z },
-      { x: 0, y: pose.fwd.y, z: pose.fwd.z },
-    );
+    const quat = quatFromBasis(pose.left, pose.up, pose.fwd);
     this.chassis.setTranslation({ x: pose.x, y: pose.y, z: pose.z }, true);
     this.chassis.setRotation(quat, true);
     this.chassis.setLinvel({ x: 0, y: pose.fwd.y * speed, z: pose.fwd.z * speed }, true);

@@ -121,8 +121,8 @@ export function surfaceGrids(): SurfaceGrid[] {
   gridCache = [
     buildGrid('runway-ramp', -4, lip + 4, 110, (z) => (z >= lip ? launchHeight(lip) : launchHeight(z))),
     buildGrid('landing', LANDING.z0, LANDING.z1, 60, landingHeight),
-    buildGrid('loop-approach', -4, LOOP.zCenter - 0.4, 40, () => 0, LOOP.laneX, side),
-    buildGrid('loop-exit', LOOP.zCenter + LOOP.radius + 2.4, LOOP.zCenter + 48, 36, () => 0, LOOP.laneX, side),
+    buildGrid('loop-approach', -4, LOOP.entryZ + 0.4, 40, () => 0, LOOP.laneX, side),
+    buildGrid('loop-exit', LOOP.exitZ - 0.6, LOOP.exitZ + 42, 36, () => 0, LOOP.exitX, side),
     buildGrid('quarter-approach', -4, QUARTER.z0 - 0.3, 36, () => 0, QUARTER.laneX, side),
     buildGrid('quarter-exit', QUARTER.z0 + QUARTER.radius + 4, QUARTER.z0 + 90, 40, () => 0, QUARTER.laneX, side),
     buildGrid('gap-flat', -4, GAP.rampZ0, 24, () => 0, GAP.laneX, side),

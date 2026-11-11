@@ -10,7 +10,7 @@ import { Input } from './input';
 import { Particles } from './particles';
 import { DriveWorld, type ContactPoint, type DrivePose } from './physics';
 import { initialQuality, isIOS, stepDown, type Quality } from './quality';
-import { stuntById, type StuntId } from './stunts';
+import { LOOP, stuntById, type StuntId } from './stunts';
 import { driveSurfaceHeight, FIELD, SPAWN } from './terrain';
 import { HORIZON, SKY_TINT, SUN_DIR, buildWorld, type WorldView } from './worldMesh';
 
@@ -121,6 +121,7 @@ export class Game {
   private stuntId: StuntId = 'launch';
   private stuntBase = SPAWN.y;
   private camMode: 'chase' | 'face' | 'side' = 'chase';
+  private camHold = false;
 
   constructor() {
     const saved = readPick();
@@ -224,8 +225,23 @@ export class Game {
     this.stats.dpr = this.quality.dpr;
     window.__game = this.stats;
     window.__frame = (mode: string) => {
+      this.camHold = false;
       this.camMode = mode === 'face' || mode === 'side' ? mode : 'chase';
       this.snapCam = true;
+    };
+    window.__look = (px: number, py: number, pz: number, lx: number, ly: number, lz: number) => {
+      this.camHold = true;
+      this.camera.position.set(px, py, pz);
+      this.look.set(lx, ly, lz);
+      this.camera.lookAt(this.look);
+    };
+    window.__loop = {
+      laneX: LOOP.laneX,
+      entryZ: LOOP.entryZ,
+      exitZ: LOOP.exitZ,
+      exitX: LOOP.exitX,
+      midZ: LOOP.midZ,
+      height: LOOP.height,
     };
     if (new URLSearchParams(location.search).get('debug') === '1') this.showDebug();
     window.addEventListener('touchstart', (event) => {
@@ -603,6 +619,7 @@ export class Game {
   }
 
   private followCamera(dt: number, pose: DrivePose): void {
+    if (this.camHold) return;
     const yaw = Math.atan2(2 * (pose.qw * pose.qy + pose.qx * pose.qz), 1 - 2 * (pose.qy * pose.qy + pose.qz * pose.qz));
     if (this.camMode === 'face') {
       this.desired.set(pose.x + Math.cos(yaw) * 2.2 + Math.sin(yaw) * 5.6, pose.y + 0.45, pose.z - Math.sin(yaw) * 2.2 + Math.cos(yaw) * 5.6);
@@ -877,5 +894,7 @@ declare global {
   interface Window {
     __game?: GameStats;
     __frame?: (mode: string) => void;
+    __look?: (px: number, py: number, pz: number, lx: number, ly: number, lz: number) => void;
+    __loop?: { laneX: number; entryZ: number; exitZ: number; exitX: number; midZ: number; height: number };
   }
 }

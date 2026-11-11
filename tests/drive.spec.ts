@@ -51,7 +51,7 @@ test('loads, drives, jumps, and crashes', async ({ page }, info) => {
   const errors = await boot(page, info.project.name);
   const portrait = info.project.name.includes('portrait');
 
-  for (const label of ['Go', 'Left', 'Right', 'Restart', 'Tilt']) {
+  for (const label of ['Go', 'Left', 'Right', 'Restart', 'Tilt', 'Trick']) {
     const box = await page.getByRole('button', { name: label }).boundingBox();
     expect(box, label).toBeTruthy();
     const view = page.viewportSize()!;
@@ -65,6 +65,14 @@ test('loads, drives, jumps, and crashes', async ({ page }, info) => {
     await page.getByRole('button', { name: 'Reid' }).dispatchEvent('pointerdown');
     await page.waitForFunction(() => window.__game?.carId === 'car:boy2');
   }
+
+  await hold(page, 'Go', 1);
+  await hold(page, 'Left', 3);
+  await page.waitForFunction(() => (window.__game?.position.x ?? 0) > 0.8, undefined, { timeout: 12_000 });
+  await release(page, 'Left', 3);
+  await release(page, 'Go', 1);
+  await page.getByRole('button', { name: 'Restart' }).dispatchEvent('pointerdown');
+  await page.waitForFunction(() => Math.abs(window.__game?.position.x ?? 1) < 0.4 && (window.__game?.position.z ?? 99) < 12);
 
   await hold(page, 'Go', 1);
   await hold(page, 'Right', 2);

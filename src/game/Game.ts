@@ -39,6 +39,7 @@ export interface GameStats {
   boot: string;
   stunt: string;
   looped: boolean;
+  tricking: boolean;
 }
 
 const UP = new THREE.Vector3(0, 1, 0);
@@ -69,6 +70,7 @@ export class Game {
     boot: '',
     stunt: 'launch',
     looped: false,
+    tricking: false,
   };
 
   private renderer!: THREE.WebGLRenderer;
@@ -103,6 +105,7 @@ export class Game {
   private prevVy = 0;
   private wasAir = false;
   private shakeAmp = 0;
+  private trickSpark = 0;
   private invertTime = 0;
   private speedEl: HTMLElement | null = null;
   private contact: THREE.Mesh | null = null;
@@ -297,6 +300,7 @@ export class Game {
     const timeScale = this.slow > 0 ? 0.34 : 1;
     if (this.slow > 0) this.slow = Math.max(0, this.slow - dt);
     this.accum += dt * timeScale;
+    let trickEdge = command.trick;
     let steps = 0;
     let landed: {
       fallSpeed: number;
@@ -315,7 +319,13 @@ export class Game {
     } | null = null;
     const extras: ContactPoint[] = [];
     while (this.accum >= 1 / 60 && steps < 5) {
-      this.pose = this.drive.step(1 / 60, { throttle: command.throttle, steer: command.steer });
+      this.pose = this.drive.step(1 / 60, { throttle: command.throttle, steer: command.steer, trick: trickEdge });
+      trickEdge = false;
+      if (this.pose.hopped) this.sfx.boing();
+      if (this.pose.spun) {
+        this.sfx.yay();
+        this.particles.celebrate(this.pose.x, this.pose.y + 1, this.pose.z);
+      }
       if (this.pose.landed && this.pose.contact) {
         landed = {
           fallSpeed: this.pose.fallSpeed,
@@ -339,6 +349,19 @@ export class Game {
     }
     if (!this.pose) return;
 
+    if (this.pose.tricking) {
+      this.trickSpark += dt;
+      if (this.trickSpark > 0.12) {
+        this.trickSpark = 0;
+        this.particles.sparksAt(this.pose.x, this.pose.y + 0.8, this.pose.z, 0.35);
+      }
+    }
+    if (this.pose.trickLanded) {
+      this.stats.stars = Math.min(5, this.stats.stars + 1);
+      this.paintStars();
+      this.sfx.chime();
+      this.particles.celebrate(this.pose.x, this.pose.y + 1.2, this.pose.z);
+    }
     this.syncCar(this.pose);
     this.car.updateFace(dt, {
       steer: command.steer,
@@ -589,11 +612,13 @@ export class Game {
       this.lookTarget.set(pose.x, pose.y - 0.25, pose.z);
     } else {
     const air = pose.airborne ? 1 : 0;
-    const dist = 9.4 + Math.min(pose.speed, 28) * 0.07 + air * 1.5;
-    const height = 3.15 + Math.min(pose.speed, 28) * 0.02 + air * 0.7;
-    const ahead = 3.6 + Math.min(pose.speed, 30) * 0.07;
+    const tall = this.drive.tireDrop() > 1.15;
+    const dist = (tall ? 18.6 : 16.2) + Math.min(pose.speed, 28) * 0.09 + air * 2.4;
+    const height = (tall ? 12.8 : 11.1) + Math.min(pose.speed, 28) * 0.035 + air * 1.6;
+    const ahead = 5.4 + Math.min(pose.speed, 30) * 0.06;
+    const lookY = tall ? 1.05 : 0.7;
     this.desired.set(pose.x - Math.sin(yaw) * dist, pose.y + height, pose.z - Math.cos(yaw) * dist);
-    this.lookTarget.set(pose.x + Math.sin(yaw) * ahead, pose.y + 0.55, pose.z + Math.cos(yaw) * ahead);
+    this.lookTarget.set(pose.x + Math.sin(yaw) * ahead, pose.y + lookY, pose.z + Math.cos(yaw) * ahead);
     }
     if (this.snapCam) {
       this.camera.position.copy(this.desired);
@@ -616,7 +641,7 @@ export class Game {
     if (this.look.y < surface + 0.4) this.look.y = surface + 0.4;
     this.camera.lookAt(this.look);
     this.placeContact(pose);
-    const fov = 58 + Math.min(pose.speed, 32) * 0.42;
+    const fov = (this.camera.aspect < 1 ? 66 : 58) + Math.min(pose.speed, 32) * 0.32;
     if (Math.abs(this.camera.fov - fov) > 0.25) {
       this.camera.fov = fov;
       this.camera.updateProjectionMatrix();
@@ -638,6 +663,7 @@ export class Game {
     this.stats.maxAirY = pose.maxAirY;
     this.stats.airTime = pose.airTime;
     this.stats.looped = pose.looped;
+    this.stats.tricking = pose.tricking;
     this.stats.stunt = pose.stunt;
   }
 

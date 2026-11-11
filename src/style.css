@@ -200,6 +200,20 @@ button.down { transform: translateY(5px) scale(0.94); filter: brightness(0.92); 
   box-shadow: none;
 }
 
+#trick {
+  position: absolute;
+  right: calc(var(--inset-r) + clamp(150px, 36vmin, 210px));
+  bottom: calc(var(--inset-b) + 6px);
+  width: clamp(96px, 22vmin, 136px);
+  height: clamp(96px, 22vmin, 136px);
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #ffe08a, #ff9f0a 46%, #ff5a1f);
+  box-shadow: 0 7px 0 #c2410c, 0 10px 16px rgba(80, 30, 0, 0.22);
+  z-index: 3;
+}
+#trick svg { width: 68%; height: 68%; }
+#trick.down { transform: translateY(3px); box-shadow: 0 3px 0 #c2410c; }
+
 #go {
   position: absolute;
   right: var(--inset-r);
@@ -344,6 +358,13 @@ button.down { transform: translateY(5px) scale(0.94); filter: brightness(0.92); 
     width: 92px;
     height: 92px;
   }
+  #trick {
+    right: auto;
+    left: calc(50% - 42px);
+    bottom: var(--inset-b);
+    width: 84px;
+    height: 84px;
+  }
 }
 @media (max-height: 420px) {
   #types button { width: 48px; height: 48px; }
@@ -352,5 +373,6 @@ button.down { transform: translateY(5px) scale(0.94); filter: brightness(0.92); 
   #tilt, #restart { width: 58px; height: 58px; }
   #left, #right { width: 72px; height: 72px; border-radius: 20px; }
   #go { width: 96px; height: 96px; }
+  #trick { width: 78px; height: 78px; }
   .star { width: 18px; height: 18px; }
 }

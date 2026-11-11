@@ -2,6 +2,7 @@ export interface DriveCommand {
   throttle: number;
   steer: number;
   restart: boolean;
+  trick: boolean;
 }
 
 /**
@@ -15,6 +16,7 @@ export class Input {
   private keyLeft = false;
   private keyRight = false;
   private restartQueued = false;
+  private trickQueued = false;
   tiltOn = false;
   private tiltSteer = 0;
   private readonly onSelect: (id: string) => void;
@@ -60,6 +62,15 @@ export class Input {
       this.right = down;
     });
 
+    must('trick').addEventListener('pointerdown', (event) => {
+      event.preventDefault();
+      unlock();
+      this.trickQueued = true;
+      must('trick').classList.add('down');
+    });
+    must('trick').addEventListener('pointerup', () => must('trick').classList.remove('down'));
+    must('trick').addEventListener('pointercancel', () => must('trick').classList.remove('down'));
+
     must('restart').addEventListener('pointerdown', (event) => {
       event.preventDefault();
       unlock();
@@ -103,6 +114,7 @@ export class Input {
       if (event.key === 'ArrowLeft' || event.key === 'a' || event.key === 'A') this.keyLeft = true;
       if (event.key === 'ArrowRight' || event.key === 'd' || event.key === 'D') this.keyRight = true;
       if (event.key === 'r' || event.key === 'R') this.restartQueued = true;
+      if (event.key === ' ' || event.key === 'ArrowDown') this.trickQueued = true;
     });
     window.addEventListener('keyup', (event) => {
       if (event.key === 'ArrowUp' || event.key === 'w' || event.key === 'W') this.keyGo = false;
@@ -128,7 +140,9 @@ export class Input {
     steer = Math.max(-1, Math.min(1, steer));
     const restart = this.restartQueued;
     this.restartQueued = false;
-    return { throttle: this.go || this.keyGo ? 1 : 0, steer, restart };
+    const trick = this.trickQueued;
+    this.trickQueued = false;
+    return { throttle: this.go || this.keyGo ? 1 : 0, steer, restart, trick };
   }
 
   private async toggleTilt(): Promise<void> {
@@ -178,6 +192,7 @@ function steerFromOrientation(event: DeviceOrientationEvent): number {
   if (angle === 90) tilt = event.beta ?? 0;
   else if (angle === -90 || angle === 270) tilt = -(event.beta ?? 0);
   else tilt = event.gamma ?? 0;
+  // Positive gamma is the phone's right side down, which should steer right.
   const dead = 6;
   const sign = Math.sign(tilt);
   const mag = Math.max(0, Math.abs(tilt) - dead);

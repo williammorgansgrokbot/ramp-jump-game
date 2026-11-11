@@ -124,6 +124,26 @@ export class Sfx {
     osc.stop(now + 0.28);
   }
 
+  yay(): void {
+    if (!this.ctx || !this.master) return;
+    const notes = [392, 523, 659, 784];
+    const now = this.ctx.currentTime;
+    notes.forEach((freq, i) => {
+      const osc = this.ctx!.createOscillator();
+      osc.type = 'sine';
+      const gain = this.ctx!.createGain();
+      const t = now + i * 0.045;
+      osc.frequency.value = freq;
+      gain.gain.setValueAtTime(0.0001, t);
+      gain.gain.exponentialRampToValueAtTime(0.09, t + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.001, t + 0.16);
+      osc.connect(gain);
+      gain.connect(this.master!);
+      osc.start(t);
+      osc.stop(t + 0.18);
+    });
+  }
+
   chime(): void {
     if (!this.ctx || !this.master) return;
     const notes = [523, 659, 784];

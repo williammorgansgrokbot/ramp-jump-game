@@ -14,8 +14,10 @@ function mask(membership: number, filter: number): number {
 export interface DriveInput {
   /** 0..1 hold-to-drive. */
   throttle: number;
-  /** -1 left, +1 right. */
+  /** -1 left, +1 right, from the chase camera behind the vehicle. */
   steer: number;
+  /** One-shot hop on the ground, or a spin once the vehicle is in the air. */
+  trick?: boolean;
 }
 
 export interface WheelPose {
@@ -59,6 +61,14 @@ export interface DrivePose {
   extraHits: ContactPoint[];
   looped: boolean;
   stunt: StuntId;
+  /** A spin is playing. */
+  tricking: boolean;
+  /** This step began a hop. */
+  hopped: boolean;
+  /** This step began an air trick. */
+  spun: boolean;
+  /** Landed upright after a finished trick. */
+  trickLanded: boolean;
   /** The car fell through the world or left the field. The game should respawn it. */
   rescue: boolean;
 }
@@ -87,6 +97,14 @@ export class DriveWorld {
   private readonly chassisHandles = new Set<number>();
   private readonly hiddenWheels = new Set<number>();
   private steerAngle = 0;
+  private hopCool = 0;
+  private trickActive = false;
+  private trickTime = 0;
+  private trickDur = 0.8;
+  private trickKind: 'roll' | 'yaw' = 'roll';
+  private trickDir = 1;
+  private trickYaw = 0;
+  private trickAward = false;
   private seenGround = false;
   private wasAirborne = false;
   private airTime = 0;
@@ -116,6 +134,10 @@ export class DriveWorld {
     extraHits: [],
     looped: false,
     stunt: 'launch',
+    tricking: false,
+    hopped: false,
+    spun: false,
+    trickLanded: false,
     rescue: false,
   };
 
@@ -412,6 +434,10 @@ export class DriveWorld {
     this.chassis.setAngvel({ x: 0, y: 0, z: 0 }, true);
     this.chassis.wakeUp();
     this.steerAngle = 0;
+    this.hopCool = 0;
+    this.trickActive = false;
+    this.trickTime = 0;
+    this.trickAward = false;
     this.seenGround = false;
     this.wasAirborne = false;
     this.airTime = 0;
@@ -438,8 +464,9 @@ export class DriveWorld {
     const target = steer * 0.48 * steerScale;
     const blend = 1 - Math.exp(-10 * dt);
     this.steerAngle += (target - this.steerAngle) * blend;
-    this.vehicle.setWheelSteering(0, this.steerAngle);
-    this.vehicle.setWheelSteering(1, this.steerAngle);
+    // Rapier's positive steer yaws toward -X. Negate it so -1 is the vehicle's left.
+    this.vehicle.setWheelSteering(0, -this.steerAngle);
+    this.vehicle.setWheelSteering(1, -this.steerAngle);
     this.vehicle.setWheelSteering(2, 0);
     this.vehicle.setWheelSteering(3, 0);
 
@@ -475,10 +502,10 @@ export class DriveWorld {
     const x = t.x;
     const y = t.y;
     const z = t.z;
-    const qx = r.x;
-    const qy = r.y;
-    const qz = r.z;
-    const qw = r.w;
+    let qx = r.x;
+    let qy = r.y;
+    let qz = r.z;
+    let qw = r.w;
     const vx = v.x;
     const vy = v.y;
     const vz = v.z;
@@ -536,14 +563,25 @@ export class DriveWorld {
       extraHits.push({ x: contact.x, y: contact.y, z: contact.z, force: hitForce });
     }
 
-    if (airborne && Math.abs(input.steer) > 0.25 && this.airTime > 0.15) {
+    if (!this.trickActive && airborne && Math.abs(input.steer) > 0.25 && this.airTime > 0.15) {
       const av = this.chassis.angvel();
       const ax = av.x;
       const ay = av.y;
       const az = av.z;
-      const spun = rotateByQuat(qx, qy, qz, qw, input.steer * 1.5 * dt, 0, -input.steer * 2.2 * dt);
+      const spun = rotateByQuat(qx, qy, qz, qw, -input.steer * 1.5 * dt, 0, input.steer * 2.2 * dt);
       this.chassis.setAngvel({ x: ax + spun.x, y: ay + spun.y, z: az + spun.z }, true);
     }
+
+    this.pose.hopped = false;
+    this.pose.spun = false;
+    this.pose.trickLanded = false;
+    if (input.trick) this.beginTrick(airborne, x, y, z);
+    this.applyTrick(dt, x, y, z);
+    const spunRot = this.chassis.rotation();
+    qx = spunRot.x;
+    qy = spunRot.y;
+    qz = spunRot.z;
+    qw = spunRot.w;
 
     const pose = this.pose;
     pose.x = x;
@@ -579,6 +617,68 @@ export class DriveWorld {
     const vel = this.chassis.linvel();
     this.chassis.setLinvel({ x: vel.x * 0.2, y: vel.y, z: Math.max(vel.z, 0) + pad.kick }, true);
     this.boostCool = 0.85;
+  }
+
+  /** A ground tap hops. An air tap plays one full spin and finishes upright. */
+  private beginTrick(airborne: boolean, x: number, y: number, z: number): void {
+    if (this.loopActive || this.hopCool > 0) return;
+    const ground = driveSurfaceHeight(z, x);
+    const clearance = ground === null ? y : y - ground;
+    const vel = this.chassis.linvel();
+    if (!airborne || clearance < this.spec.drop + 1.35) {
+      this.chassis.setLinvel({ x: vel.x, y: Math.max(vel.y, airborne ? 3.4 : 4.6), z: vel.z }, true);
+      this.hopCool = 0.5;
+      this.pose.hopped = true;
+      return;
+    }
+    if (this.trickActive) return;
+    const rot = this.chassis.rotation();
+    this.trickYaw = Math.atan2(2 * (rot.w * rot.y + rot.x * rot.z), 1 - 2 * (rot.y * rot.y + rot.z * rot.z));
+    this.trickKind = this.trickKind === 'roll' ? 'yaw' : 'roll';
+    this.trickDir = Math.random() < 0.5 ? -1 : 1;
+    this.trickTime = 0;
+    const falling = vel.y < -0.4 ? clearance / Math.max(0.8, -vel.y) : 1.2;
+    this.trickDur = Math.min(0.9, Math.max(0.42, falling * 0.8));
+    this.trickActive = true;
+    this.hopCool = 0.35;
+    this.pose.spun = true;
+  }
+
+  private applyTrick(dt: number, x: number, y: number, z: number): void {
+    if (this.hopCool > 0) this.hopCool = Math.max(0, this.hopCool - dt);
+    if (this.loopActive) this.trickActive = false;
+    if (this.trickActive) {
+      const ground = driveSurfaceHeight(z, x);
+      const clearance = ground === null ? 8 : y - ground;
+      const vel = this.chassis.linvel();
+      const timeLeft = vel.y < -0.4 ? clearance / Math.max(0.5, -vel.y) : 2;
+      const rush = timeLeft < 0.4 ? 0.4 / Math.max(0.12, timeLeft) : 1;
+      this.trickTime += dt * rush;
+      const u = Math.min(1, this.trickTime / this.trickDur);
+      const angle = u * Math.PI * 2 * this.trickDir;
+      const q = this.trickKind === 'yaw'
+        ? quatYaw(this.trickYaw + angle)
+        : quatMul(quatYaw(this.trickYaw), quatRoll(angle));
+      this.chassis.setRotation(q, true);
+      this.chassis.setAngvel({ x: 0, y: 0, z: 0 }, true);
+      const low = clearance < this.spec.drop + 0.55;
+      if (u >= 1 || low) {
+        this.chassis.setRotation(quatYaw(this.trickYaw), true);
+        this.chassis.setAngvel({ x: 0, y: 0, z: 0 }, true);
+        this.trickActive = false;
+        if (u > 0.55) this.trickAward = true;
+      }
+    }
+    this.pose.tricking = this.trickActive;
+    if (this.trickAward && !this.trickActive) {
+      const ground = driveSurfaceHeight(z, x);
+      const clearance = ground === null ? 8 : y - ground;
+      const wheels = [0, 1, 2, 3].filter((i) => this.vehicle.wheelIsInContact(i)).length;
+      if (wheels >= 2 || clearance < this.spec.drop + 1.15) {
+        this.pose.trickLanded = true;
+        this.trickAward = false;
+      }
+    }
   }
 
   /** Keep a held throttle glued to the loop so a preschooler always gets around. */
@@ -687,6 +787,28 @@ function quatFromBasis(
   }
   const len = Math.hypot(x, y, z, w) || 1;
   return { x: x / len, y: y / len, z: z / len, w: w / len };
+}
+
+function quatYaw(yaw: number): { x: number; y: number; z: number; w: number } {
+  const h = yaw * 0.5;
+  return { x: 0, y: Math.sin(h), z: 0, w: Math.cos(h) };
+}
+
+function quatRoll(roll: number): { x: number; y: number; z: number; w: number } {
+  const h = roll * 0.5;
+  return { x: 0, y: 0, z: Math.sin(h), w: Math.cos(h) };
+}
+
+function quatMul(
+  a: { x: number; y: number; z: number; w: number },
+  b: { x: number; y: number; z: number; w: number },
+): { x: number; y: number; z: number; w: number } {
+  return {
+    x: a.w * b.x + a.x * b.w + a.y * b.z - a.z * b.y,
+    y: a.w * b.y - a.x * b.z + a.y * b.w + a.z * b.x,
+    z: a.w * b.z + a.x * b.y - a.y * b.x + a.z * b.w,
+    w: a.w * b.w - a.x * b.x - a.y * b.y - a.z * b.z,
+  };
 }
 
 function rotateByQuat(qx: number, qy: number, qz: number, qw: number, vx: number, vy: number, vz: number): { x: number; y: number; z: number } {

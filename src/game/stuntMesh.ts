@@ -5,9 +5,13 @@ import { BOOSTS, GAP } from './stunts';
 import { FIELD } from './terrain';
 
 /** Stunt structures, the gap pond, and glowing boost arrows. Colliders live in the physics world. */
-export function buildStuntExtras(wood: THREE.Texture | null, art: FieldArt | null = null): THREE.Group {
+export async function buildStuntExtras(
+  wood: THREE.Texture | null,
+  art: FieldArt | null = null,
+  opts: { base: string; mobile: boolean } = { base: '/', mobile: true },
+): Promise<THREE.Group> {
   const group = new THREE.Group();
-  group.add(buildStuntShow());
+  group.add(await buildStuntShow(opts));
   group.add(gapPond());
   for (const pad of BOOSTS) group.add(boostPad(pad.x, pad.z, pad.length));
   void wood;

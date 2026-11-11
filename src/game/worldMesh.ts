@@ -63,7 +63,7 @@ export async function buildWorld(scene: THREE.Scene, renderer: THREE.WebGLRender
   scene.add(driveDeck(runway, asphalt, wood, dirt, 3.2, 0.9, 0.04, 'road', field));
   scene.add(driveDeck(landing, dirt, sand, dirt, 3.6, 0.96, 0.02, 'dirt', field));
   for (const grid of surfaceGrids()) {
-    if (grid.id === 'runway-ramp' || grid.id === 'landing') continue;
+    if (grid.id === 'runway-ramp' || grid.id === 'landing' || grid.id === 'gap-ramp' || grid.id === 'gap-land' || grid.id === 'mega-run') continue;
     const dirtDeck = grid.id.endsWith('land');
     scene.add(driveDeck(grid, dirtDeck ? dirt : asphalt, sand, dirt, 3.4, dirtDeck ? 0.96 : 0.9, 0.03, dirtDeck ? 'dirt' : 'road', field));
   }
@@ -71,11 +71,9 @@ export async function buildWorld(scene: THREE.Scene, renderer: THREE.WebGLRender
   scene.add(edgeLines());
   scene.add(chevrons());
   scene.add(barriers());
-  scene.add(rampBuild(wood));
   scene.add(lipChecks());
   scene.add(edgeBulbs());
   scene.add(pond(sand));
-  scene.add(quarterPipe(wood));
   const extras = buildStuntExtras(wood, field);
   scene.add(extras);
   if (field) scatterField(scene, field, opts.propLevel);
@@ -338,11 +336,9 @@ function driveDeck(
     );
     shader.fragmentShader = `varying vec3 vDeckWorld;\nuniform sampler2D blendMap;\nuniform sampler2D dirtMap;\nuniform float laneX;\n${shader.fragmentShader}`;
     const mixBlock = mode === 'road'
-      ? `float rampMix = step(abs(laneX), 0.5) * smoothstep(49.0, 52.5, vDeckWorld.z);
-         diffuseColor.rgb = mix(diffuseColor.rgb, blendCol, rampMix);
-         diffuseColor.rgb = mix(diffuseColor.rgb, dirtCol, edge * (1.0 - rampMix));
+      ? `         diffuseColor.rgb = mix(diffuseColor.rgb, dirtCol, edge);
          float wear = smoothstep(0.55, 0.92, fract(sin(dot(vDeckWorld.xz, vec2(12.9898, 78.233))) * 43758.5453));
-         diffuseColor.rgb *= mix(1.0, 0.84, wear * (1.0 - rampMix) * 0.65);`
+         diffuseColor.rgb *= mix(1.0, 0.84, wear * 0.65);`
       : `diffuseColor.rgb = mix(diffuseColor.rgb, blendCol, edge * 0.28);`;
     shader.fragmentShader = shader.fragmentShader.replace(
       '#include <map_fragment>',

@@ -155,7 +155,7 @@ export function dressGround(material: THREE.MeshStandardMaterial, art: FieldArt)
 export type DeckRole = 'road' | 'ramp' | 'rutted' | 'concrete';
 
 export function deckRole(id: string): DeckRole {
-  if (id === 'runway-ramp' || id === 'gap-ramp') return 'ramp';
+  if (id === 'gap-ramp') return 'ramp';
   if (id === 'mega-run') return 'concrete';
   if (id === 'landing' || id.endsWith('land')) return 'rutted';
   return 'road';

@@ -17,7 +17,7 @@ export interface CarConfig {
 
 export const CARS: CarConfig[] = [
   { id: 'boy1', name: 'Wyatt', numeral: '1', body: '#ff3b30', accent: '#ffd60a', roof: '#fff7ea', plate: '#1c1c1e', rim: '#ff2d2d', iris: '#3b82f6' },
-  { id: 'boy2', name: 'Reed', numeral: '2', body: '#0a84ff', accent: '#64d2ff', roof: '#f4fbff', plate: '#102033', rim: '#f4f7fb', iris: '#7ec8ff' },
+  { id: 'boy2', name: 'Reid', numeral: '2', body: '#0a84ff', accent: '#64d2ff', roof: '#f4fbff', plate: '#102033', rim: '#f4f7fb', iris: '#7ec8ff' },
   { id: 'boy3', name: 'Brady', numeral: '3', body: '#30d158', accent: '#ffd60a', roof: '#f3fff6', plate: '#102816', rim: '#f4fbf6', iris: '#5ee07a' },
   { id: 'boy4', name: 'Stetson', numeral: '4', body: '#ffd60a', accent: '#ff9f0a', roof: '#fff8e6', plate: '#3a2a08', rim: '#fff4c2', iris: '#ff9f0a' },
 ];

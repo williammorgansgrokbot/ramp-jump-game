@@ -62,7 +62,7 @@ test('loads, drives, jumps, and crashes', async ({ page }, info) => {
   }
 
   if (!portrait) {
-    await page.getByRole('button', { name: 'Reed' }).dispatchEvent('pointerdown');
+    await page.getByRole('button', { name: 'Reid' }).dispatchEvent('pointerdown');
     await page.waitForFunction(() => window.__game?.carId === 'car:boy2');
   }
 

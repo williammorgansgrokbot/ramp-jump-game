@@ -52,12 +52,15 @@ interface Build {
   steel: Tube[];
   steelBlue: Tube[];
   coping: Tube[];
+  nodes: THREE.Vector3[];
+  nodesBlue: THREE.Vector3[];
 }
 
 export async function buildStuntShow(opts: { base: string; mobile: boolean }): Promise<THREE.Group> {
   const build: Build = {
     deck: [], loopDeck: [], ply: [], diamond: [], stripe: [], hazard: [], hazardEdge: [],
     rail: [], shell: [], bumper: [], ao: [], steel: [], steelBlue: [], coping: [],
+    nodes: [], nodesBlue: [],
   };
   addLoop(build);
   addSlope(build, build.steel, build.deck, 0, 50, 78, 6.4, (z) => launchHeight(z), true);
@@ -117,13 +120,17 @@ export async function buildStuntShow(opts: { base: string; mobile: boolean }): P
 
   const yellow = slot('steel-yellow', { color: 0xffffff, roughness: 1, metalness: 0.62 });
   paint(yellow, tex.yellow, null, tex.yellowR, 1, 1, true);
+  const yellowNodes = yellow.clone();
   tubePaint(yellow);
   group.add(tubeMesh('steel-yellow', build.steel, yellow));
+  group.add(nodeMesh('steel-yellow', build.nodes, yellowNodes));
 
   const blue = slot('steel-blue', { color: 0xffffff, roughness: 1, metalness: 0.62 });
   paint(blue, tex.blue, null, tex.blueR, 1, 1, true);
+  const blueNodes = blue.clone();
   tubePaint(blue);
   group.add(tubeMesh('steel-blue', build.steelBlue, blue));
+  group.add(nodeMesh('steel-blue', build.nodesBlue, blueNodes));
 
   group.add(tubeMesh('coping-pipe', build.coping, slot('coping-pipe', { color: 0xd5dde6, roughness: 0.28, metalness: 0.82 })));
   return group;
@@ -310,6 +317,36 @@ function tubeMesh(name: string, tubes: Tube[], material: THREE.MeshStandardMater
   return mesh;
 }
 
+function nodeMesh(name: string, points: THREE.Vector3[], material: THREE.MeshStandardMaterial): THREE.InstancedMesh {
+  const unique: THREE.Vector3[] = [];
+  for (const point of points) {
+    if (!unique.some((kept) => kept.distanceToSquared(point) < 0.05)) unique.push(point);
+  }
+  const geo = new THREE.SphereGeometry(1, 8, 6);
+  const mesh = new THREE.InstancedMesh(geo, material, Math.max(1, unique.length));
+  mesh.name = name;
+  mesh.castShadow = true;
+  const dummy = new THREE.Object3D();
+  unique.forEach((point, index) => {
+    dummy.position.copy(point);
+    dummy.scale.setScalar(0.16);
+    dummy.updateMatrix();
+    mesh.setMatrixAt(index, dummy.matrix);
+  });
+  mesh.count = Math.max(1, unique.length);
+  mesh.instanceMatrix.needsUpdate = true;
+  return mesh;
+}
+
+function chain(steel: Tube[], nodes: THREE.Vector3[], points: THREE.Vector3[], radius: number): void {
+  if (!points.length) return;
+  nodes.push(points[0]);
+  for (let i = 1; i < points.length; i++) {
+    steel.push(tube(points[i - 1], points[i], radius));
+    nodes.push(points[i]);
+  }
+}
+
 function addLoop(build: Build): void {
   const frames = LOOP.frames;
   const tint = frames.map(() => WHITE);
@@ -320,46 +357,72 @@ function addLoop(build: Build): void {
   build.hazardEdge.push(edgeBand(frames, 0, 5, LOOP.halfW));
   build.hazardEdge.push(edgeBand(frames, frames.length - 6, frames.length - 1, LOOP.halfW));
 
-  let lastS = -10;
-  let prevL: THREE.Vector3 | null = null;
-  let prevR: THREE.Vector3 | null = null;
-  for (const frame of frames) {
-    if (frame.y < 1.6 || frame.s - lastS < 3.1) continue;
-    lastS = frame.s;
-    for (const side of [-1, 1]) {
-      const edge = offset(frame, side * (LOOP.halfW + 0.05), 0.35);
-      const outer = offset(frame, side * (LOOP.halfW + 1.45), -0.15);
-      outer.y = Math.max(0.7, frame.y - 0.85);
-      const low = outer.clone();
-      low.y = Math.max(0.4, outer.y - 1.15);
-      build.steel.push(tube(edge, outer, 0.3));
-      build.steel.push(tube(outer, low, 0.26));
-      const prev = side < 0 ? prevL : prevR;
-      if (prev) {
-        build.steel.push(tube(prev, outer, 0.28));
-        build.steel.push(tube(prev, edge, 0.2));
-      }
-      if (side < 0) prevL = outer;
-      else prevR = outer;
-    }
+  const arch = frames.filter((frame) => frame.y > 0.45);
+  const samples: LoopFrame[] = [];
+  let nextS = -1;
+  for (const frame of arch) {
+    if (frame.s < nextS) continue;
+    samples.push(frame);
+    nextS = frame.s + 1.05;
+  }
+  if (samples.length < 2) return;
+
+  const sideLine = (side: number) => samples.map((frame) => offset(frame, side * (LOOP.halfW + 0.62), 0.08));
+  const left = sideLine(-1);
+  const right = sideLine(1);
+  const r = 0.125;
+  chain(build.steel, build.nodes, left, r);
+  chain(build.steel, build.nodes, right, r);
+
+  let ribS = -10;
+  for (let i = 0; i < samples.length; i++) {
+    const frame = samples[i];
+    if (frame.s - ribS < 2.4) continue;
+    ribS = frame.s;
+    const edgeL = offset(frame, -(LOOP.halfW + 0.04), 0.22);
+    const edgeR = offset(frame, LOOP.halfW + 0.04, 0.22);
+    build.steel.push(tube(edgeL, left[i], r));
+    build.steel.push(tube(edgeR, right[i], r));
+    build.nodes.push(edgeL, edgeR, left[i], right[i]);
   }
 
-  const high = frames.filter((frame) => frame.y > 5.5);
-  const picks = [0.12, 0.28, 0.45, 0.62, 0.78].map((t) => high[Math.min(high.length - 1, Math.floor(t * high.length))]);
-  for (const frame of picks) {
-    if (!frame) continue;
-    for (const side of [-1, 1]) {
-      const top = offset(frame, side * (LOOP.halfW + 0.15), 0.55);
-      const foot = new THREE.Vector3(frame.x + side * (LOOP.halfW + 3.1), 0.18, frame.z + side * 0.8);
-      build.steel.push(tube(foot, top, 0.32));
-      build.diamond.push(plate(foot.x, 0.05, foot.z, 1.1, 0.7));
-      build.ao.push(disc(foot.x, foot.z, 2.2));
-    }
+  const wall = arch.filter((frame) => frame.y > 4 && frame.y < 10);
+  if (wall.length) {
+    const three = wall.reduce((best, frame) => (frame.z > best.z ? frame : best));
+    const nine = wall.reduce((best, frame) => (frame.z < best.z ? frame : best));
+    addTower(build, three, 1, samples, right);
+    addTower(build, nine, -1, samples, left);
   }
+
   for (let i = 0; i < frames.length; i += 8) {
     const frame = frames[i];
-    build.ao.push(disc(frame.x, frame.z, frame.y > 2 ? 3.6 : 4.4));
+    build.ao.push(disc(frame.x, frame.z, frame.y > 2 ? 3.2 : 4.2));
   }
+}
+
+function addTower(build: Build, frame: LoopFrame, side: number, samples: LoopFrame[], line: THREE.Vector3[]): void {
+  let apexI = 0;
+  let best = Infinity;
+  for (let i = 0; i < samples.length; i++) {
+    const d = Math.hypot(samples[i].x - frame.x, samples[i].y - frame.y, samples[i].z - frame.z);
+    if (d < best) {
+      best = d;
+      apexI = i;
+    }
+  }
+  const apex = line[apexI];
+  const zDir = Math.sign(frame.z - LOOP.midZ) || 1;
+  const footA = new THREE.Vector3(apex.x + side * 1.7, 0.14, frame.z + zDir * 0.4);
+  const footB = new THREE.Vector3(apex.x + side * 1.7, 0.14, frame.z + zDir * 3.1);
+  const leg = 0.16;
+  build.steel.push(tube(footA, apex, leg), tube(footB, apex, leg));
+  build.nodes.push(apex, footA, footB);
+  build.diamond.push(plate(footA.x, 0.05, footA.z, 0.85, 0.6), plate(footB.x, 0.05, footB.z, 0.85, 0.6));
+  build.ao.push(disc(footA.x, footA.z, 1.8), disc(footB.x, footB.z, 1.8));
+
+  const braceAt = [apexI + 4, apexI - 4].map((index) => line[Math.max(0, Math.min(line.length - 1, index))]);
+  build.steel.push(tube(footA, braceAt[0], 0.12), tube(footB, braceAt[1], 0.12));
+  build.nodes.push(braceAt[0], braceAt[1]);
 }
 
 interface PathPoint {
@@ -397,22 +460,24 @@ function addSlope(
   build.rail.push(wall(frames, half, 0.55));
   build.rail.push(wall(frames, -half, 0.55));
   if (chevron) build.hazard.push(chevronStrip(frames, half));
-  let prev: { l: THREE.Vector3; r: THREE.Vector3 } | null = null;
-  for (let i = 0; i < frames.length; i += 5) {
-    const frame = frames[i];
-    if (frame.y < 0.8) continue;
-    const l = offset(frame, -(half + 0.35), -0.35);
-    const r = offset(frame, half + 0.35, -0.35);
-    l.y = Math.max(0.35, frame.y - 0.55);
-    r.y = l.y;
-    steel.push(tube(new THREE.Vector3(frame.x - half, 0.2, frame.z), l, 0.16));
-    steel.push(tube(new THREE.Vector3(frame.x + half, 0.2, frame.z), r, 0.16));
+  const nodes = steel === build.steel ? build.nodes : build.nodesBlue;
+  let prev: { l: THREE.Vector3; r: THREE.Vector3; footL: THREE.Vector3; footR: THREE.Vector3 } | null = null;
+  let lastZ = -1e9;
+  for (const frame of frames) {
+    if (frame.y < 0.9 || frame.z - lastZ < 2.3) continue;
+    lastZ = frame.z;
+    const l = offset(frame, -(half + 0.15), -0.2);
+    const r = offset(frame, half + 0.15, -0.2);
+    const footL = new THREE.Vector3(frame.x - half - 0.15, 0.12, frame.z);
+    const footR = new THREE.Vector3(frame.x + half + 0.15, 0.12, frame.z);
+    steel.push(tube(footL, l, 0.14), tube(footR, r, 0.14), tube(l, r, 0.1));
+    nodes.push(l, r, footL, footR);
     if (prev) {
-      steel.push(tube(prev.l, l, 0.14));
-      steel.push(tube(prev.r, r, 0.14));
-      steel.push(tube(l, r, 0.12));
+      steel.push(tube(prev.l, l, 0.1), tube(prev.r, r, 0.1));
+      steel.push(tube(prev.l, r, 0.08), tube(prev.r, l, 0.08));
+      nodes.push(prev.l, prev.r);
     }
-    prev = { l, r };
+    prev = { l, r, footL, footR };
   }
   const lip = frames[frames.length - 1];
   for (const side of [-1, 1]) {

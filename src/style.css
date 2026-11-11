@@ -116,24 +116,37 @@ button.down { transform: translateY(5px) scale(0.94); filter: brightness(0.92); 
 #stunts button.selected { box-shadow: 0 0 0 3px #ffd60a, 0 4px 0 rgba(20, 40, 70, 0.18); }
 #stunts svg { width: 78%; height: 78%; }
 
-#cars {
+#garage {
   position: absolute;
   top: var(--inset-t);
   left: var(--inset-l);
   display: flex;
+  flex-direction: column;
   gap: 8px;
   pointer-events: auto;
+  z-index: 3;
 }
-
-#cars button {
-  width: clamp(58px, 13vmin, 84px);
-  height: clamp(48px, 11vmin, 70px);
-  border-radius: 14px;
-  background: rgba(255, 255, 255, 0.28);
+#types, #colors {
+  display: flex;
+  gap: 8px;
+}
+#types button, #colors button {
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.82);
   box-shadow: 0 4px 0 rgba(20, 40, 70, 0.18);
-  position: relative;
+  overflow: hidden;
 }
-#cars button.selected { box-shadow: 0 0 0 3px #ffd60a, 0 4px 0 rgba(20, 40, 70, 0.18); }
+#types button {
+  width: clamp(68px, 15vmin, 96px);
+  height: clamp(68px, 15vmin, 96px);
+}
+#colors button {
+  width: clamp(52px, 11vmin, 72px);
+  height: clamp(44px, 9vmin, 60px);
+}
+#types button.selected, #colors button.selected {
+  box-shadow: 0 0 0 3px #ffd60a, 0 4px 0 rgba(20, 40, 70, 0.18);
+}
 
 #tilt, #restart {
   position: absolute;
@@ -252,12 +265,13 @@ button.down { transform: translateY(5px) scale(0.94); filter: brightness(0.92); 
   }
   #restart { right: var(--inset-r); }
   #tilt { right: calc(var(--inset-r) + 58px); }
-  #cars {
-    top: calc(var(--inset-t) + 58px);
-    flex-direction: column;
+  #garage {
+    top: calc(var(--inset-t) + 46px);
     gap: 6px;
   }
-  #cars button { width: 54px; height: 44px; }
+  #types, #colors { gap: 6px; }
+  #types button { width: 58px; height: 58px; border-radius: 14px; }
+  #colors button { width: 44px; height: 38px; border-radius: 12px; }
   #stunts {
     top: auto;
     bottom: calc(var(--inset-b) + 108px);
@@ -273,7 +287,8 @@ button.down { transform: translateY(5px) scale(0.94); filter: brightness(0.92); 
   }
 }
 @media (max-height: 420px) {
-  #cars button { width: 42px; height: 42px; border-radius: 12px; }
+  #types button { width: 48px; height: 48px; }
+  #colors button { width: 40px; height: 34px; }
   #tilt, #restart { width: 58px; height: 58px; }
   #left, #right { width: 72px; height: 72px; border-radius: 20px; }
   #go { width: 96px; height: 96px; }

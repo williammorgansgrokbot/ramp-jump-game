@@ -1,5 +1,6 @@
 import RAPIER from '@dimforge/rapier3d-compat';
 import { DriveWorld } from '../src/game/physics';
+import type { VehicleType } from '../src/game/carFit';
 import { driveSurfaceHeight, surfaceGrids } from '../src/game/terrain';
 
 /**
@@ -56,27 +57,32 @@ for (const grid of surfaceGrids()) {
   }
 }
 
-drive.reset();
-let minClear = 10;
-for (let i = 0; i < 260; i++) {
-  const pose = drive.step(1 / 60, { throttle: 1, steer: 0 });
-  if (i < 40 || pose.z < 8 || pose.z > 46 || pose.wheelsOn < 4) continue;
-  const { qx, qy, qz, qw } = pose;
-  for (const wheel of pose.wheels) {
-    const wx = pose.x + (1 - 2 * (qy * qy + qz * qz)) * wheel.x + 2 * (qx * qy - qw * qz) * wheel.y + 2 * (qx * qz + qw * qy) * wheel.z;
-    const wy = pose.y + 2 * (qx * qy + qw * qz) * wheel.x + (1 - 2 * (qx * qx + qz * qz)) * wheel.y + 2 * (qy * qz - qw * qx) * wheel.z;
-    const wz = pose.z + 2 * (qx * qz - qw * qy) * wheel.x + 2 * (qy * qz + qw * qx) * wheel.y + (1 - 2 * (qx * qx + qy * qy)) * wheel.z;
-    const upY = 1 - 2 * (qx * qx + qz * qz);
-    const surface = driveSurfaceHeight(wz);
-    if (surface === null) continue;
-    void wx;
-    const bottom = wy - (wheel.radius || 0.5) * upY;
-    minClear = Math.min(minClear, bottom - surface);
+const kinds: VehicleType[] = ['car', 'jeep', 'monster'];
+for (const kind of kinds) {
+  drive.fitVehicle(kind);
+  drive.reset();
+  let minClear = 10;
+  for (let i = 0; i < 260; i++) {
+    const pose = drive.step(1 / 60, { throttle: 1, steer: 0 });
+    if (i < 40 || pose.z < 8 || pose.z > 46 || pose.wheelsOn < 4) continue;
+    const { qx, qy, qz, qw } = pose;
+    for (const wheel of pose.wheels) {
+      const wx = pose.x + (1 - 2 * (qy * qy + qz * qz)) * wheel.x + 2 * (qx * qy - qw * qz) * wheel.y + 2 * (qx * qz + qw * qy) * wheel.z;
+      const wy = pose.y + 2 * (qx * qy + qw * qz) * wheel.x + (1 - 2 * (qx * qx + qz * qz)) * wheel.y + 2 * (qy * qz - qw * qx) * wheel.z;
+      const wz = pose.z + 2 * (qx * qz - qw * qy) * wheel.x + 2 * (qy * qz + qw * qx) * wheel.y + (1 - 2 * (qx * qx + qy * qy)) * wheel.z;
+      const upY = 1 - 2 * (qx * qx + qz * qz);
+      const surface = driveSurfaceHeight(wz);
+      if (surface === null) continue;
+      void wx;
+      const bottom = wy - (wheel.radius || 0.5) * upY;
+      minClear = Math.min(minClear, bottom - surface);
+    }
   }
+  console.log(`${kind} runwayTireClear ${minClear.toFixed(3)} m`);
+  if (minClear < -0.03) failures.push(`${kind} tires sink on the runway by ${(-minClear).toFixed(3)} m`);
 }
 
-console.log(`checked ${checked} samples, worstAbsDelta ${worst.toFixed(4)} m, runwayTireClear ${minClear.toFixed(3)} m`);
-if (minClear < -0.03) failures.push(`tires sink on the runway by ${(-minClear).toFixed(3)} m`);
+console.log(`checked ${checked} samples, worstAbsDelta ${worst.toFixed(4)} m`);
 if (failures.length) {
   console.error(failures.slice(0, 24).join('\n'));
   console.error(`ground check failed on ${failures.length} samples`);

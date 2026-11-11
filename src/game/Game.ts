@@ -5,6 +5,7 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { CARS, carById, type CarConfig } from './catalog';
 import { Sfx } from './audio';
 import { AXLE, ToyCar, type Detachable } from './carMesh';
+import { COLOR_OF, type VehicleType } from './carFit';
 import { Input } from './input';
 import { Particles } from './particles';
 import { DriveWorld, type ContactPoint, type DrivePose } from './physics';
@@ -80,6 +81,8 @@ export class Game {
   private quality: Quality = initialQuality();
   private drive!: DriveWorld;
   private car!: ToyCar;
+  private vehicleType: VehicleType = 'car';
+  private swapping = false;
   private worldView!: WorldView;
   private particles!: Particles;
   private readonly sfx = new Sfx();
@@ -115,7 +118,11 @@ export class Game {
   private camMode: 'chase' | 'face' | 'side' = 'chase';
 
   constructor() {
-    this.input = new Input((id) => this.selectCar(id), (id) => this.selectStunt(id));
+    const saved = readPick();
+    this.vehicleType = saved.type;
+    this.config = carById(saved.id);
+    this.stats.carId = `${saved.type}:${saved.id}`;
+    this.input = new Input((id) => this.selectCar(id), (id) => this.selectStunt(id), (type) => this.selectType(type));
   }
 
   async start(): Promise<void> {
@@ -193,16 +200,17 @@ export class Game {
       base: import.meta.env.BASE_URL,
       mobile: this.quality.level !== 'high',
       anisotropy: this.anisotropy(),
+      type: this.vehicleType,
+      id: this.config.id,
     });
-    this.car.setConfig(this.config);
-    this.drive.fitWheels(this.car.axles());
+    this.drive.fitVehicle(this.vehicleType, this.car.axles());
     this.drive.settle();
     this.scene.add(this.car.group);
     this.addContact();
     this.particles = new Particles(this.scene, this.quality.particles);
     this.setupBloom();
     this.input.attach(() => this.sfx.unlock());
-    paintCarButtons();
+    paintGarage(this.vehicleType, this.config.id);
     this.resize();
 
     document.getElementById('loading')?.classList.add('hidden');
@@ -502,17 +510,36 @@ export class Game {
     if (this.drive && this.car) this.restart();
   }
 
+  private selectType(type: string): void {
+    if (type !== 'car' && type !== 'jeep' && type !== 'monster') return;
+    if (type === this.vehicleType || this.swapping) return;
+    this.vehicleType = type;
+    void this.applyPick();
+  }
+
   private selectCar(id: string): void {
-    const next = carById(id);
-    const changed = next.id !== this.config.id;
-    this.config = next;
-    this.stats.carId = next.id;
-    this.car?.setConfig(next);
-    if (this.car) this.drive?.fitWheels(this.car.axles());
-    document.querySelectorAll<HTMLElement>('[data-car]').forEach((button) => {
-      button.classList.toggle('selected', button.dataset.car === next.id);
-    });
-    if (changed && this.drive && this.car) this.restart();
+    if (id === this.config.id || this.swapping) return;
+    this.config = carById(id);
+    void this.applyPick();
+  }
+
+  private async applyPick(): Promise<void> {
+    if (!this.car || !this.drive) return;
+    this.swapping = true;
+    const type = this.vehicleType;
+    const id = this.config.id;
+    try {
+      await this.car.show(type, id);
+      this.drive.fitVehicle(type, this.car.axles());
+      this.stats.carId = `${type}:${id}`;
+      writePick(type, id);
+      paintGarage(type, id);
+      this.restart();
+    } catch (err) {
+      console.info('Vehicle swap failed', err);
+    } finally {
+      this.swapping = false;
+    }
   }
 
   private syncCar(pose: DrivePose): void {
@@ -739,12 +766,39 @@ export class Game {
   }
 }
 
-function paintCarButtons(): void {
+const PICK_KEY = 'ramp-vehicle';
+
+function readPick(): { type: VehicleType; id: string } {
+  try {
+    const raw = localStorage.getItem(PICK_KEY);
+    if (!raw) return { type: 'car', id: 'boy1' };
+    const parsed = JSON.parse(raw) as { type?: string; id?: string };
+    const type: VehicleType = parsed.type === 'jeep' || parsed.type === 'monster' ? parsed.type : 'car';
+    const id = CARS.some((car) => car.id === parsed.id) ? parsed.id! : 'boy1';
+    return { type, id };
+  } catch {
+    return { type: 'car', id: 'boy1' };
+  }
+}
+
+function writePick(type: VehicleType, id: string): void {
+  try {
+    localStorage.setItem(PICK_KEY, JSON.stringify({ type, id }));
+  } catch {
+    /* private mode */
+  }
+}
+
+function paintGarage(type: VehicleType, id: string): void {
+  document.querySelectorAll<HTMLElement>('[data-type]').forEach((button) => {
+    button.classList.toggle('selected', button.dataset.type === type);
+  });
   for (const car of CARS) {
-    const button = document.querySelector<HTMLElement>(`[data-car="${car.id}"]`);
-    if (!button) continue;
-    button.style.setProperty('--car', car.body);
-    button.style.setProperty('--accent', car.accent);
+    const button = document.querySelector<HTMLButtonElement>(`[data-car="${car.id}"]`);
+    const img = button?.querySelector('img');
+    const color = COLOR_OF[car.id] ?? 'red';
+    if (img) img.src = `art/thumbs/thumb_${type}_${color}_512.png`;
+    button?.classList.toggle('selected', car.id === id);
   }
 }
 

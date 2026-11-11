@@ -19,10 +19,12 @@ export class Input {
   private tiltSteer = 0;
   private readonly onSelect: (id: string) => void;
   private readonly onStunt: (id: string) => void;
+  private readonly onType: (type: string) => void;
 
-  constructor(onSelect: (id: string) => void, onStunt: (id: string) => void) {
+  constructor(onSelect: (id: string) => void, onStunt: (id: string) => void, onType: (type: string) => void) {
     this.onSelect = onSelect;
     this.onStunt = onStunt;
+    this.onType = onType;
   }
 
   attach(unlock: () => void): void {
@@ -70,6 +72,14 @@ export class Input {
       void this.toggleTilt();
     });
 
+    document.querySelectorAll<HTMLButtonElement>('[data-type]').forEach((button) => {
+      button.addEventListener('pointerdown', (event) => {
+        event.preventDefault();
+        unlock();
+        const type = button.dataset.type;
+        if (type) this.onType(type);
+      });
+    });
     document.querySelectorAll<HTMLButtonElement>('[data-car]').forEach((button) => {
       button.addEventListener('pointerdown', (event) => {
         event.preventDefault();

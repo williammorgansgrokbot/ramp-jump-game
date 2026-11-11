@@ -1,8 +1,7 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
-import type { CarConfig } from './catalog';
-import { TIRE_DROP, axlesFor, type Axle } from './carFit';
+import { axlesFor, modelFile, vehicleSpec, type Axle, type VehicleType } from './carFit';
 
 export interface Detachable {
   id: string;
@@ -21,13 +20,6 @@ export interface Detachable {
 const AXLE = new THREE.Vector3(1, 0, 0);
 const WHEEL_NAMES = ['Wheel_FL', 'Wheel_FR', 'Wheel_RL', 'Wheel_RR'] as const;
 
-const FILES: Record<string, string> = {
-  boy1: 'car_red',
-  boy2: 'car_blue',
-  boy3: 'car_green',
-  boy4: 'car_yellow',
-};
-
 interface LoadedCar {
   root: THREE.Group;
   body: THREE.Mesh;
@@ -43,38 +35,79 @@ export class ToyCar {
   readonly parts: Detachable[] = [];
   dentCount = 0;
 
-  private readonly loaded = new Map<string, LoadedCar>();
-  private activeId = '';
+  private active: LoadedCar | null = null;
+  private activeKey = '';
   private body!: THREE.Mesh;
   private positionAttr!: THREE.BufferAttribute;
   private original!: Float32Array;
+  private loader!: GLTFLoader;
+  private base = '';
+  private mobile = false;
+  private anisotropy = 4;
+  type: VehicleType = 'car';
+  colorId = 'boy1';
 
   private constructor() {
     this.group.name = 'toy-car';
   }
 
-  static async create(opts: { base: string; mobile: boolean; anisotropy: number }): Promise<ToyCar> {
+  static async create(opts: { base: string; mobile: boolean; anisotropy: number; type: VehicleType; id: string }): Promise<ToyCar> {
     const car = new ToyCar();
-    const loader = new GLTFLoader();
-    loader.setMeshoptDecoder(MeshoptDecoder);
-    await Promise.all(
-      Object.keys(FILES).map(async (id) => {
-        const file = `${FILES[id]}${opts.mobile ? '_mobile' : ''}.glb`;
-        const gltf = await loader.loadAsync(`${opts.base}art/cars/v3/${file}`);
-        car.loaded.set(id, prepare(gltf.scene, id, opts.anisotropy));
-      }),
-    );
-    car.use('boy1');
+    car.loader = new GLTFLoader();
+    car.loader.setMeshoptDecoder(MeshoptDecoder);
+    car.base = opts.base;
+    car.mobile = opts.mobile;
+    car.anisotropy = opts.anisotropy;
+    await car.show(opts.type, opts.id);
     return car;
   }
 
   axles(): Axle[] {
-    return axlesFor(this.activeId || 'boy1');
+    return axlesFor(this.type, this.colorId);
   }
 
-  /** Swap the visible TRELLIS model. Physics axles come from `axles()`. */
-  setConfig(config: CarConfig): void {
-    if (this.loaded.has(config.id)) this.use(config.id);
+  /** Load just this vehicle, drop the previous model, and show it. */
+  async show(type: VehicleType, id: string): Promise<void> {
+    const key = `${type}:${id}`;
+    if (this.activeKey === key && this.active) return;
+    const file = modelFile(type, id, this.mobile);
+    const gltf = await this.loader.loadAsync(`${this.base}art/${file}`);
+    const next = prepare(gltf.scene, type, id, this.anisotropy);
+    this.disposeActive();
+    this.type = type;
+    this.colorId = id;
+    this.activeKey = key;
+    this.active = next;
+    this.group.add(next.root);
+    for (const wheel of next.wheels) this.group.add(wheel);
+    refreshTextures(next);
+    this.wheels.splice(0, this.wheels.length, ...next.wheels);
+    this.parts.splice(0, this.parts.length, ...next.parts);
+    this.body = next.body;
+    this.positionAttr = next.positionAttr;
+    this.original = next.original;
+  }
+
+  private disposeActive(): void {
+    const previous = this.active;
+    if (!previous) return;
+    this.group.remove(previous.root);
+    for (const wheel of previous.wheels) wheel.removeFromParent();
+    const dump = (obj: THREE.Object3D) => {
+      const mesh = obj as THREE.Mesh;
+      if (!mesh.isMesh) return;
+      mesh.geometry?.dispose();
+      const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+      for (const material of materials) {
+        const mapped = material as THREE.MeshPhysicalMaterial;
+        mapped.map?.dispose();
+        material.dispose();
+      }
+    };
+    previous.root.traverse(dump);
+    for (const wheel of previous.wheels) wheel.traverse(dump);
+    this.active = null;
+    this.activeKey = '';
   }
 
   /** Baked eyes stay on the texture. Nothing procedural is left on the windshield. */
@@ -127,33 +160,16 @@ export class ToyCar {
     this.dentCount = 0;
   }
 
-  private use(id: string): void {
-    const next = this.loaded.get(id);
-    if (!next) return;
-    const previous = this.loaded.get(this.activeId);
-    if (previous) {
-      this.group.remove(previous.root);
-      for (const wheel of previous.wheels) wheel.removeFromParent();
-    }
-    this.activeId = id;
-    this.group.add(next.root);
-    for (const wheel of next.wheels) this.group.add(wheel);
-    refreshTextures(next);
-    this.wheels.splice(0, this.wheels.length, ...next.wheels);
-    this.parts.splice(0, this.parts.length, ...next.parts);
-    this.body = next.body;
-    this.positionAttr = next.positionAttr;
-    this.original = next.original;
-  }
 }
 
-function prepare(scene: THREE.Group, id: string, anisotropy: number): LoadedCar {
-  const axles = axlesFor(id);
+function prepare(scene: THREE.Group, type: VehicleType, id: string, anisotropy: number): LoadedCar {
+  const axles = axlesFor(type, id);
+  const drop = vehicleSpec(type).drop;
   const yellow = id === 'boy4';
   const root = new THREE.Group();
-  root.name = id;
-  // Model y = 0 is the ground under the tires. Chassis y = 0 is a meter above that.
-  root.position.y = -TIRE_DROP;
+  root.name = `${type}-${id}`;
+  // Model y = 0 is the ground under the tires.
+  root.position.y = -drop;
   root.add(scene);
 
   let shared: THREE.MeshPhysicalMaterial | null = null;
@@ -166,8 +182,8 @@ function prepare(scene: THREE.Group, id: string, anisotropy: number): LoadedCar 
     const map = previous?.map ?? null;
     bakeTexture(map, anisotropy);
     const isWheel = WHEEL_NAMES.some((name) => mesh.name === name || mesh.parent?.name === name);
-    if (!shared) shared = paint(map, yellow, false, `${id}_body`);
-    const material = isWheel ? wheelMat.get(previous) ?? paint(map, yellow, true, `${id}_wheel`) : shared;
+    if (!shared) shared = paint(map, yellow, false, `${type}_${id}_body`);
+    const material = isWheel ? wheelMat.get(previous) ?? paint(map, yellow, true, `${type}_${id}_wheel`) : shared;
     if (isWheel && previous) wheelMat.set(previous, material);
     mesh.material = material;
     mesh.castShadow = true;
@@ -177,7 +193,7 @@ function prepare(scene: THREE.Group, id: string, anisotropy: number): LoadedCar 
 
   const bodyObj = scene.getObjectByName('Body');
   const body = (bodyObj && (bodyObj as THREE.Mesh).isMesh ? bodyObj : bodyObj?.children.find((child) => (child as THREE.Mesh).isMesh)) as THREE.Mesh;
-  if (!body) throw new Error(`Car ${id} is missing a Body mesh`);
+    if (!body) throw new Error(`${type} ${id} is missing a Body mesh`);
   const positionAttr = body.geometry.getAttribute('position') as THREE.BufferAttribute;
   const original = new Float32Array(positionAttr.array);
 
@@ -185,11 +201,11 @@ function prepare(scene: THREE.Group, id: string, anisotropy: number): LoadedCar 
   const parts: Detachable[] = [];
   axles.forEach((axle, index) => {
     const node = scene.getObjectByName(axle.name);
-    if (!node) throw new Error(`Car ${id} is missing ${axle.name}`);
-    if (axle.name === 'Wheel_FL' || axle.name === 'Wheel_FR') clipSpike(node);
+    if (!node) throw new Error(`${type} ${id} is missing ${axle.name}`);
+    if (type === 'car' && (axle.name === 'Wheel_FL' || axle.name === 'Wheel_FR')) clipSpike(node);
     node.parent?.remove(node);
     wheels.push(node);
-    const local = new THREE.Vector3(axle.x, axle.radius - TIRE_DROP, axle.z);
+    const local = new THREE.Vector3(axle.x, axle.radius - drop, axle.z);
     node.position.copy(local);
     node.quaternion.identity();
     parts.push({

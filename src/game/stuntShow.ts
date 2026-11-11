@@ -49,6 +49,7 @@ interface Build {
   shell: THREE.BufferGeometry[];
   bumper: THREE.BufferGeometry[];
   ao: THREE.BufferGeometry[];
+  foot: THREE.BufferGeometry[];
   steel: Tube[];
   steelBlue: Tube[];
   coping: Tube[];
@@ -59,12 +60,12 @@ interface Build {
 export async function buildStuntShow(opts: { base: string; mobile: boolean }): Promise<THREE.Group> {
   const build: Build = {
     deck: [], loopDeck: [], ply: [], diamond: [], stripe: [], hazard: [], hazardEdge: [],
-    rail: [], shell: [], bumper: [], ao: [], steel: [], steelBlue: [], coping: [],
+    rail: [], shell: [], bumper: [], ao: [], foot: [], steel: [], steelBlue: [], coping: [],
     nodes: [], nodesBlue: [],
   };
   addLoop(build);
   addSlope(build, build.steel, build.deck, 0, 50, 78, 6.4, (z) => launchHeight(z), true);
-  addSlope(build, build.steel, build.deck, MEGA.laneX, 2, MEGA.dropZ1, 6.2, megaRunHeight, true);
+  addSlope(build, build.steel, build.deck, MEGA.laneX, 2, MEGA.dropZ1, 6.2, megaRunHeight, true, true);
   addSlope(build, build.steelBlue, build.deck, GAP.laneX, GAP.rampZ0, GAP.rampZ1 + 0.2, 6.0, gapRampHeight, true);
   addSlope(build, build.steelBlue, build.diamond, GAP.laneX, GAP.landZ0 - 0.2, GAP.landZ0 + 22, 6.0, gapLandHeight, false);
   addQuarter(build);
@@ -117,6 +118,16 @@ export async function buildStuntShow(opts: { base: string; mobile: boolean }): P
 
   const ao = slot('contact-ao', { color: 0x000000, transparent: true, opacity: 0.62, roughness: 1, depthWrite: false });
   pushMerged(group, build.ao, ao, false);
+  const footMat = new THREE.MeshBasicMaterial({
+    name: 'contact-footprint',
+    map: softFootprint(),
+    transparent: true,
+    depthWrite: false,
+    color: 0x000000,
+  });
+  footMat.polygonOffset = true;
+  footMat.polygonOffsetFactor = -1;
+  pushMerged(group, build.foot, footMat, false);
 
   const yellow = slot('steel-yellow', { color: 0xffffff, roughness: 1, metalness: 0.62 });
   paint(yellow, tex.yellow, null, tex.yellowR, 1, 1, true);
@@ -451,6 +462,7 @@ function addSlope(
   half: number,
   heightAt: (z: number) => number,
   chevron: boolean,
+  dense = false,
 ): void {
   const frames = slopeFrames(lane, z0, z1, heightAt);
   const colors = frames.map(() => WHITE);
@@ -461,21 +473,29 @@ function addSlope(
   build.rail.push(wall(frames, -half, 0.55));
   if (chevron) build.hazard.push(chevronStrip(frames, half));
   const nodes = steel === build.steel ? build.nodes : build.nodesBlue;
+  const spacing = dense ? 1.7 : 2.3;
+  const legR = dense ? 0.2 : 0.14;
   let prev: { l: THREE.Vector3; r: THREE.Vector3; footL: THREE.Vector3; footR: THREE.Vector3 } | null = null;
   let lastZ = -1e9;
   for (const frame of frames) {
-    if (frame.y < 0.9 || frame.z - lastZ < 2.3) continue;
+    if (frame.y < 0.9 || frame.z - lastZ < spacing) continue;
     lastZ = frame.z;
     const l = offset(frame, -(half + 0.15), -0.2);
     const r = offset(frame, half + 0.15, -0.2);
     const footL = new THREE.Vector3(frame.x - half - 0.15, 0.12, frame.z);
     const footR = new THREE.Vector3(frame.x + half + 0.15, 0.12, frame.z);
-    steel.push(tube(footL, l, 0.14), tube(footR, r, 0.14), tube(l, r, 0.1));
+    steel.push(tube(footL, l, legR), tube(footR, r, legR), tube(l, r, dense ? 0.13 : 0.1));
     nodes.push(l, r, footL, footR);
+    if (dense) {
+      steel.push(tube(footL, footR, 0.11));
+      build.diamond.push(plate(footL.x, 0.05, footL.z, 0.55, 0.42), plate(footR.x, 0.05, footR.z, 0.55, 0.42));
+    }
     if (prev) {
-      steel.push(tube(prev.l, l, 0.1), tube(prev.r, r, 0.1));
-      steel.push(tube(prev.l, r, 0.08), tube(prev.r, l, 0.08));
-      nodes.push(prev.l, prev.r);
+      steel.push(tube(prev.l, l, dense ? 0.12 : 0.1), tube(prev.r, r, dense ? 0.12 : 0.1));
+      steel.push(tube(prev.footL, footL, dense ? 0.1 : 0.08), tube(prev.footR, footR, dense ? 0.1 : 0.08));
+      steel.push(tube(prev.footL, l, dense ? 0.12 : 0.08), tube(prev.l, footL, dense ? 0.12 : 0.08));
+      steel.push(tube(prev.footR, r, dense ? 0.12 : 0.08), tube(prev.r, footR, dense ? 0.12 : 0.08));
+      nodes.push(prev.l, prev.r, prev.footL, prev.footR);
     }
     prev = { l, r, footL, footR };
   }
@@ -484,8 +504,11 @@ function addSlope(
     const pad = offset(lip, side * (half - 0.35), 0.15);
     build.bumper.push(box(pad.x, pad.y + 0.18, pad.z, 0.28, 0.16, 0.55));
   }
-  build.ao.push(disc(lane, z0 + 2, half * 0.95));
-  build.ao.push(disc(lane, (z0 + z1) * 0.5, half * 0.8));
+  if (dense) build.foot.push(footprint(frames, half + 1.1));
+  else {
+    build.ao.push(disc(lane, z0 + 2, half * 0.45));
+    build.ao.push(disc(lane, (z0 + z1) * 0.5, half * 0.4));
+  }
 }
 
 function addQuarter(build: Build): void {
@@ -762,6 +785,53 @@ function box(x: number, y: number, z: number, hx: number, hy: number, hz: number
   const geo = new THREE.BoxGeometry(hx * 2, hy * 2, hz * 2);
   geo.translate(x, y, z);
   return geo;
+}
+
+function footprint(frames: PathPoint[], half: number): THREE.BufferGeometry {
+  const positions: number[] = [];
+  const uvs: number[] = [];
+  const indices: number[] = [];
+  for (let i = 0; i < frames.length; i++) {
+    const frame = frames[i];
+    const along = frames.length === 1 ? 0.5 : i / (frames.length - 1);
+    positions.push(frame.x - half, 0.045, frame.z, frame.x + half, 0.045, frame.z);
+    uvs.push(0, along, 1, along);
+  }
+  for (let i = 0; i < frames.length - 1; i++) {
+    const a = i * 2;
+    indices.push(a, a + 1, a + 2, a + 2, a + 1, a + 3);
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+  geo.computeVertexNormals();
+  return geo;
+}
+
+function softFootprint(): THREE.Texture {
+  const width = 128;
+  const height = 64;
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext('2d');
+  const image = ctx?.createImageData(width, height);
+  if (image) {
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        const across = Math.sin((x / (width - 1)) * Math.PI);
+        const along = Math.sin((y / (height - 1)) * Math.PI);
+        const alpha = Math.pow(across, 1.6) * Math.pow(along, 0.55);
+        const i = (y * width + x) * 4;
+        image.data[i + 3] = Math.round(alpha * 150);
+      }
+    }
+    ctx?.putImageData(image, 0, 0);
+  }
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.NoColorSpace;
+  tex.needsUpdate = true;
+  return tex;
 }
 
 function disc(x: number, z: number, radius: number): THREE.BufferGeometry {

@@ -42,11 +42,18 @@
           <svg viewBox="0 0 64 64" aria-hidden="true"><path d="M6 18 H24 L40 48 H58" fill="none" stroke="#ff3b30" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </button>
       </div>
-      <div id="cars">
-        <button type="button" data-car="boy1" class="selected" aria-label="Boy 1"><img src="art/cars/toycar_red_sprite.webp" alt="" /></button>
-        <button type="button" data-car="boy2" aria-label="Boy 2"><img src="art/cars/toycar_blue_sprite.webp" alt="" /></button>
-        <button type="button" data-car="boy3" aria-label="Boy 3"><img src="art/cars/toycar_green_sprite.webp" alt="" /></button>
-        <button type="button" data-car="boy4" aria-label="Boy 4"><img src="art/cars/toycar_yellow_sprite.webp" alt="" /></button>
+      <div id="garage">
+        <div id="types">
+          <button type="button" data-type="car" class="selected" aria-label="Car"><img src="art/thumbs/thumb_car_red_512.png" alt="" /></button>
+          <button type="button" data-type="jeep" aria-label="Jeep"><img src="art/thumbs/thumb_jeep_red_512.png" alt="" /></button>
+          <button type="button" data-type="monster" aria-label="Monster truck"><img src="art/thumbs/thumb_monster_red_512.png" alt="" /></button>
+        </div>
+        <div id="colors">
+          <button type="button" data-car="boy1" class="selected" aria-label="Red"><img src="art/thumbs/thumb_car_red_512.png" alt="" /></button>
+          <button type="button" data-car="boy2" aria-label="Blue"><img src="art/thumbs/thumb_car_blue_512.png" alt="" /></button>
+          <button type="button" data-car="boy3" aria-label="Green"><img src="art/thumbs/thumb_car_green_512.png" alt="" /></button>
+          <button type="button" data-car="boy4" aria-label="Yellow"><img src="art/thumbs/thumb_car_yellow_512.png" alt="" /></button>
+        </div>
       </div>
       <button id="tilt" type="button" aria-label="Tilt" aria-pressed="false">
         <img src="art/icons/icon_tilt.webp" alt="" />

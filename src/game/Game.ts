@@ -83,6 +83,8 @@ export class Game {
   private car!: ToyCar;
   private vehicleType: VehicleType = 'car';
   private swapping = false;
+  /** The pick already spoke, so the restart that follows it stays quiet. */
+  private sayOnRestart = true;
   private worldView!: WorldView;
   private particles!: Particles;
   private readonly sfx = new Sfx();
@@ -214,6 +216,7 @@ export class Game {
     this.resize();
 
     document.getElementById('loading')?.classList.add('hidden');
+    cheer(this.config.name);
     this.stats.ready = true;
     this.stats.dpr = this.quality.dpr;
     window.__game = this.stats;
@@ -498,6 +501,8 @@ export class Game {
     this.paintStars();
     this.sfx.boing();
     this.particles.celebrate(spawn.x, spawn.y + 1, spawn.z);
+    if (this.sayOnRestart) cheer(this.config.name);
+    this.sayOnRestart = true;
   }
 
   private selectStunt(id: string): void {
@@ -514,12 +519,17 @@ export class Game {
     if (type !== 'car' && type !== 'jeep' && type !== 'monster') return;
     if (type === this.vehicleType || this.swapping) return;
     this.vehicleType = type;
+    cheer(this.config.name);
+    this.sayOnRestart = false;
     void this.applyPick();
   }
 
   private selectCar(id: string): void {
     if (id === this.config.id || this.swapping) return;
     this.config = carById(id);
+    showNameSplash(this.config.name, this.config.body);
+    cheer(this.config.name);
+    this.sayOnRestart = false;
     void this.applyPick();
   }
 
@@ -787,6 +797,33 @@ function writePick(type: VehicleType, id: string): void {
   } catch {
     /* private mode */
   }
+}
+
+function cheer(name: string): void {
+  try {
+    const synth = window.speechSynthesis;
+    if (!synth || typeof SpeechSynthesisUtterance === 'undefined') return;
+    synth.cancel();
+    const line = new SpeechSynthesisUtterance(`Go, ${name}!`);
+    line.rate = 1.02;
+    line.pitch = 1.18;
+    synth.speak(line);
+  } catch {
+    /* Speech is optional. Older WebKit builds omit it. */
+  }
+}
+
+function showNameSplash(name: string, color: string): void {
+  const el = document.getElementById('name-splash');
+  if (!el) return;
+  const pill = document.createElement('span');
+  pill.textContent = `${name}!`;
+  pill.style.background = color;
+  pill.style.color = color.toLowerCase() === '#ffd60a' ? '#3a2a08' : '#fffdf8';
+  el.replaceChildren(pill);
+  el.classList.remove('show');
+  void el.offsetWidth;
+  el.classList.add('show');
 }
 
 function paintGarage(type: VehicleType, id: string): void {

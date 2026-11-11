@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
+import { carById } from './catalog';
 import { axlesFor, modelFile, vehicleSpec, type Axle, type VehicleType } from './carFit';
 
 export interface Detachable {
@@ -193,7 +194,7 @@ function prepare(scene: THREE.Group, type: VehicleType, id: string, anisotropy: 
 
   const bodyObj = scene.getObjectByName('Body');
   const body = (bodyObj && (bodyObj as THREE.Mesh).isMesh ? bodyObj : bodyObj?.children.find((child) => (child as THREE.Mesh).isMesh)) as THREE.Mesh;
-    if (!body) throw new Error(`${type} ${id} is missing a Body mesh`);
+  if (!body) throw new Error(`${type} ${id} is missing a Body mesh`);
   const positionAttr = body.geometry.getAttribute('position') as THREE.BufferAttribute;
   const original = new Float32Array(positionAttr.array);
 
@@ -224,8 +225,77 @@ function prepare(scene: THREE.Group, type: VehicleType, id: string, anisotropy: 
 
   // Liners live in model space (y up from the ground) so they sit in the arches.
   addLiners(scene, axles);
+  addNamePlates(scene, body, type, carById(id).name, carById(id).body);
 
   return { root, body, wheels, parts, positionAttr, original };
+}
+
+/** Rear plate plus a door decal. Both face outward so the name reads in the chase view and from the side. */
+function addNamePlates(scene: THREE.Group, body: THREE.Mesh, type: VehicleType, name: string, ink: string): void {
+  scene.updateMatrixWorld(true);
+  const bb = new THREE.Box3().setFromObject(body);
+  const height = Math.max(0.4, bb.max.y - bb.min.y);
+  const wide = type === 'monster' ? 1.15 : 0.92;
+
+  const rear = makeNamePlate(name, ink, wide);
+  const rearX = type === 'jeep' ? bb.max.x * 0.38 : 0;
+  const rearY = bb.min.y + height * (type === 'car' ? 0.3 : 0.4);
+  rear.position.set(rearX, rearY, bb.min.z - 0.04);
+  rear.rotation.y = Math.PI;
+  scene.add(rear);
+
+  const side = makeNamePlate(name, ink, wide * 0.92);
+  side.position.set(bb.max.x + 0.035, bb.min.y + height * 0.5, (bb.min.z + bb.max.z) * 0.02);
+  side.rotation.y = -Math.PI / 2;
+  scene.add(side);
+}
+
+function makeNamePlate(name: string, ink: string, width: number): THREE.Mesh {
+  const canvas = document.createElement('canvas');
+  canvas.width = 512;
+  canvas.height = 160;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) {
+    return new THREE.Mesh(new THREE.PlaneGeometry(width, width * 0.31));
+  }
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  roundPlate(ctx, 10, 14, 492, 132, 40);
+  ctx.fillStyle = '#fffdf8';
+  ctx.fill();
+  ctx.lineWidth = 16;
+  ctx.strokeStyle = ink;
+  ctx.stroke();
+  ctx.fillStyle = '#1d2430';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  let size = 96;
+  const family = '"Arial Rounded MT Bold", "Trebuchet MS", Verdana, sans-serif';
+  ctx.font = `800 ${size}px ${family}`;
+  while (ctx.measureText(name).width > 430 && size > 52) {
+    size -= 4;
+    ctx.font = `800 ${size}px ${family}`;
+  }
+  ctx.fillText(name, 256, 82);
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.needsUpdate = true;
+  const mesh = new THREE.Mesh(
+    new THREE.PlaneGeometry(width, width * (160 / 512)),
+    new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false }),
+  );
+  mesh.name = 'name-plate';
+  mesh.renderOrder = 2;
+  return mesh;
+}
+
+function roundPlate(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number): void {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
 }
 
 /** Copy the decoded image into a canvas so WebKit can upload it after the glTF blob URL is revoked. */
@@ -234,8 +304,9 @@ const refreshed = new WeakSet<THREE.Mesh>();
 /** Build the glossy material at the moment the car is shown. A physical material created earlier uploads black on WebKit. */
 function refreshTextures(model: LoadedCar): void {
   const apply = (mesh: THREE.Mesh) => {
+    if (mesh.name === 'name-plate' || refreshed.has(mesh)) return;
     const current = mesh.material as THREE.MeshPhysicalMaterial;
-    if (!current?.map || refreshed.has(mesh)) return;
+    if (!current?.map) return;
     const image = current.map.image as HTMLCanvasElement | undefined;
     if (!image) return;
     const tex = new THREE.CanvasTexture(image);

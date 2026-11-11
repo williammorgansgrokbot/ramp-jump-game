@@ -14,9 +14,7 @@ Landscape is best. Portrait works too.
 - Yellow arrows: steer
 - Phone icon: tilt steering. On iPhone, the first tap asks for motion permission
 - Orange arrow: instant restart, car back at the start, dents gone
-- Four colored cars: Boy 1–4. Each has its own color and a roof name plate
-
-There is no menu text. The plates say BOY 1–4 until real names replace them.
+- Four boys: Wyatt (red), Reed (blue), Brady (green), and Stetson (yellow). Each name is on his color button, on the vehicle, and spoken when a round starts.
 
 ## For parents
 
@@ -37,7 +35,7 @@ There is no menu text. The plates say BOY 1–4 until real names replace them.
 
 ## Phase 2 hooks
 
-- `src/game/catalog.ts` — `CARS` (Boy 1–4 colors and plate names) and `RAMPS` (`launch`, `loop`, `quarter-pipe`, `gap`, `mega`). Only the launch ramp is enabled.
+- `src/game/catalog.ts` — `CARS` (Wyatt, Reed, Brady, Stetson) and `RAMPS` (`launch`, `loop`, `quarter-pipe`, `gap`, `mega`). Only the launch ramp is enabled.
 - `src/game/terrain.ts` — `heightForRamp()` builds the launch and mega profiles. The other kinds return a flat height until a builder is added.
 - `src/game/carMesh.ts` — `ToyCar.setConfig()` repaints a car without rebuilding physics.
 

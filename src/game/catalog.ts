@@ -1,7 +1,7 @@
-/** Phase 2 swaps these placeholder names for the boys' real names. */
+/** One boy per color, in picker order: red, blue, green, yellow. */
 export interface CarConfig {
   id: string;
-  /** Painted on the roof plate. Phase 2: replace with a real name. */
+  /** Painted on the plate and spoken at the start of a round. */
   name: string;
   /** Big numeral on the plate and the picker. */
   numeral: string;
@@ -16,10 +16,10 @@ export interface CarConfig {
 }
 
 export const CARS: CarConfig[] = [
-  { id: 'boy1', name: 'BOY 1', numeral: '1', body: '#ff3b30', accent: '#ffd60a', roof: '#fff7ea', plate: '#1c1c1e', rim: '#ff2d2d', iris: '#3b82f6' },
-  { id: 'boy2', name: 'BOY 2', numeral: '2', body: '#0a84ff', accent: '#64d2ff', roof: '#f4fbff', plate: '#102033', rim: '#f4f7fb', iris: '#7ec8ff' },
-  { id: 'boy3', name: 'BOY 3', numeral: '3', body: '#30d158', accent: '#ffd60a', roof: '#f3fff6', plate: '#102816', rim: '#f4fbf6', iris: '#5ee07a' },
-  { id: 'boy4', name: 'BOY 4', numeral: '4', body: '#ffd60a', accent: '#ff9f0a', roof: '#fff8e6', plate: '#3a2a08', rim: '#fff4c2', iris: '#ff9f0a' },
+  { id: 'boy1', name: 'Wyatt', numeral: '1', body: '#ff3b30', accent: '#ffd60a', roof: '#fff7ea', plate: '#1c1c1e', rim: '#ff2d2d', iris: '#3b82f6' },
+  { id: 'boy2', name: 'Reed', numeral: '2', body: '#0a84ff', accent: '#64d2ff', roof: '#f4fbff', plate: '#102033', rim: '#f4f7fb', iris: '#7ec8ff' },
+  { id: 'boy3', name: 'Brady', numeral: '3', body: '#30d158', accent: '#ffd60a', roof: '#f3fff6', plate: '#102816', rim: '#f4fbf6', iris: '#5ee07a' },
+  { id: 'boy4', name: 'Stetson', numeral: '4', body: '#ffd60a', accent: '#ff9f0a', roof: '#fff8e6', plate: '#3a2a08', rim: '#fff4c2', iris: '#ff9f0a' },
 ];
 
 export function carById(id: string): CarConfig {

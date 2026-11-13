@@ -123,7 +123,9 @@ export function dressGround(material: THREE.MeshStandardMaterial, art: FieldArt)
        float macro = sin(vGroundWorld.x * 0.031 + 1.7) * sin(vGroundWorld.z * 0.023);
        float macroPatch = fract(sin(dot(floor(vGroundWorld.xz * 0.17), vec2(27.1, 91.7))) * 12543.2);
        float shade = clamp(0.5 + macro * 0.16 + (macroPatch - 0.5) * 0.14, 0.0, 1.0);
-       diffuseColor.rgb *= mix(0.92, 1.06, shade);`,
+       diffuseColor.rgb *= mix(0.92, 1.06, shade);
+       float farFade = smoothstep(150.0, 290.0, length(vGroundWorld.xz - vec2(40.0, 70.0)));
+       diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.773, 0.867, 0.957), farFade);`,
     );
     shader.fragmentShader = shader.fragmentShader.replace(
       '#include <normal_fragment_maps>',

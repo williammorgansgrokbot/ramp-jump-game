@@ -19,7 +19,7 @@ export function initialQuality(): Quality {
     return { level: 'low', dpr, shadowMap: 512, bloom: false, antialias: false, particles: 40, treeCount: 46 };
   }
   if (mobile) {
-    return { level: 'medium', dpr, shadowMap: 512, bloom: false, antialias: true, particles: 80, treeCount: 84 };
+    return { level: 'medium', dpr, shadowMap: 256, bloom: false, antialias: true, particles: 64, treeCount: 56 };
   }
   return { level: 'high', dpr: Math.min(1.75, Math.max(native, 1)), shadowMap: 2048, bloom: true, antialias: true, particles: 140, treeCount: 120 };
 }

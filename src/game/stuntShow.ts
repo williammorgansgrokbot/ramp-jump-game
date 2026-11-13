@@ -133,17 +133,17 @@ export async function buildStuntShow(opts: { base: string; mobile: boolean }): P
   paint(yellow, tex.yellow, null, tex.yellowR, 1, 1, true);
   const yellowNodes = yellow.clone();
   tubePaint(yellow);
-  group.add(tubeMesh('steel-yellow', build.steel, yellow));
-  group.add(nodeMesh('steel-yellow', build.nodes, yellowNodes));
+  group.add(tubeMesh('steel-yellow', build.steel, yellow, !opts.mobile));
+  group.add(nodeMesh('steel-yellow', build.nodes, yellowNodes, !opts.mobile));
 
   const blue = slot('steel-blue', { color: 0xffffff, roughness: 1, metalness: 0.62 });
   paint(blue, tex.blue, null, tex.blueR, 1, 1, true);
   const blueNodes = blue.clone();
   tubePaint(blue);
-  group.add(tubeMesh('steel-blue', build.steelBlue, blue));
-  group.add(nodeMesh('steel-blue', build.nodesBlue, blueNodes));
+  group.add(tubeMesh('steel-blue', build.steelBlue, blue, !opts.mobile));
+  group.add(nodeMesh('steel-blue', build.nodesBlue, blueNodes, !opts.mobile));
 
-  group.add(tubeMesh('coping-pipe', build.coping, slot('coping-pipe', { color: 0xd5dde6, roughness: 0.28, metalness: 0.82 })));
+  group.add(tubeMesh('coping-pipe', build.coping, slot('coping-pipe', { color: 0xd5dde6, roughness: 0.28, metalness: 0.82 }), false));
   return group;
 }
 
@@ -305,11 +305,11 @@ function pushMerged(group: THREE.Group, geos: THREE.BufferGeometry[], material: 
   group.add(mesh);
 }
 
-function tubeMesh(name: string, tubes: Tube[], material: THREE.MeshStandardMaterial): THREE.InstancedMesh {
+function tubeMesh(name: string, tubes: Tube[], material: THREE.MeshStandardMaterial, shadow: boolean): THREE.InstancedMesh {
   const geo = new THREE.CylinderGeometry(1, 1, 1, 6, 1, true);
   const mesh = new THREE.InstancedMesh(geo, material, Math.max(1, tubes.length));
   mesh.name = name;
-  mesh.castShadow = true;
+  mesh.castShadow = shadow;
   mesh.receiveShadow = true;
   const dummy = new THREE.Object3D();
   const up = new THREE.Vector3(0, 1, 0);
@@ -328,7 +328,7 @@ function tubeMesh(name: string, tubes: Tube[], material: THREE.MeshStandardMater
   return mesh;
 }
 
-function nodeMesh(name: string, points: THREE.Vector3[], material: THREE.MeshStandardMaterial): THREE.InstancedMesh {
+function nodeMesh(name: string, points: THREE.Vector3[], material: THREE.MeshStandardMaterial, shadow: boolean): THREE.InstancedMesh {
   const unique: THREE.Vector3[] = [];
   for (const point of points) {
     if (!unique.some((kept) => kept.distanceToSquared(point) < 0.05)) unique.push(point);
@@ -336,7 +336,7 @@ function nodeMesh(name: string, points: THREE.Vector3[], material: THREE.MeshSta
   const geo = new THREE.SphereGeometry(1, 8, 6);
   const mesh = new THREE.InstancedMesh(geo, material, Math.max(1, unique.length));
   mesh.name = name;
-  mesh.castShadow = true;
+  mesh.castShadow = shadow;
   const dummy = new THREE.Object3D();
   unique.forEach((point, index) => {
     dummy.position.copy(point);

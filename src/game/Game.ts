@@ -114,7 +114,16 @@ export class Game {
   private skidCount = 0;
   private skidBreak = true;
   private skidHold = 0;
-  private readonly skidSamples = 64;
+  private readonly skidSamples = 28;
+  private readonly skidRight = new THREE.Vector3();
+  private readonly skidRear = new THREE.Vector3();
+  private readonly skidMid = new THREE.Vector3();
+  private readonly skidL0 = new THREE.Vector3();
+  private readonly skidL1 = new THREE.Vector3();
+  private readonly skidR0 = new THREE.Vector3();
+  private readonly skidR1 = new THREE.Vector3();
+  private skidMarkX = Number.NaN;
+  private skidMarkZ = Number.NaN;
   private readonly yawQ = new THREE.Quaternion();
   private readonly tiltQ = new THREE.Quaternion();
   private readonly look = new THREE.Vector3();
@@ -475,7 +484,7 @@ export class Game {
     }
 
     const ranked = this.car.parts
-      .filter((part) => !part.detached && fallSpeed + (celebrate ? 0.5 : 0) >= part.minSpeed)
+      .filter((part) => part.wheelIndex === undefined && !part.detached && fallSpeed + (celebrate ? 0.5 : 0) >= part.minSpeed)
       .sort((a, b) => a.localPos.distanceTo(local) - b.localPos.distanceTo(local));
     let popped = 0;
     for (const part of ranked) {
@@ -829,27 +838,31 @@ export class Game {
     const sliding = pose.wheelsOn >= 2 && !pose.airborne && (this.skidHold > 0 || (pose.speed > 7 && Math.abs(steer) > 0.22));
     if (!sliding) {
       this.skidBreak = true;
+      this.skidMarkX = Number.NaN;
       return;
     }
     const track = this.vehicleType === 'monster' ? 1.05 : this.vehicleType === 'jeep' ? 0.86 : 0.78;
     const half = this.vehicleType === 'monster' ? 0.34 : 0.16;
+    const moved = this.skidMarkX - pose.x;
+    const movedZ = this.skidMarkZ - pose.z;
+    if (!this.skidBreak && moved * moved + movedZ * movedZ < 0.45 * 0.45) return;
     this.yawQ.set(pose.qx, pose.qy, pose.qz, pose.qw);
-    const right = new THREE.Vector3(1, 0, 0).applyQuaternion(this.yawQ);
-    const rear = new THREE.Vector3(0, 0, -1.05).applyQuaternion(this.yawQ);
-    const center = new THREE.Vector3(pose.x, pose.y, pose.z).add(rear);
-    const left = center.clone().addScaledVector(right, track);
-    const rite = center.clone().addScaledVector(right, -track);
-    const yL = (driveSurfaceHeight(left.z, left.x) ?? pose.y - 1) + 0.04;
-    const yR = (driveSurfaceHeight(rite.z, rite.x) ?? pose.y - 1) + 0.04;
-    const l0 = left.clone().addScaledVector(right, half);
-    const l1 = left.clone().addScaledVector(right, -half);
-    const r0 = rite.clone().addScaledVector(right, half);
-    const r1 = rite.clone().addScaledVector(right, -half);
-    l0.y = yL;
-    l1.y = yL;
-    r0.y = yR;
-    r1.y = yR;
-    this.pushSkid(l0, l1, r0, r1);
+    this.skidRight.set(1, 0, 0).applyQuaternion(this.yawQ);
+    this.skidRear.set(0, 0, -1.05).applyQuaternion(this.yawQ);
+    this.skidMid.set(pose.x, pose.y, pose.z).add(this.skidRear);
+    const yL = (driveSurfaceHeight(this.skidMid.z + this.skidRight.z * track, this.skidMid.x + this.skidRight.x * track) ?? pose.y - 1) + 0.04;
+    const yR = (driveSurfaceHeight(this.skidMid.z - this.skidRight.z * track, this.skidMid.x - this.skidRight.x * track) ?? pose.y - 1) + 0.04;
+    this.skidL0.copy(this.skidMid).addScaledVector(this.skidRight, track + half);
+    this.skidL1.copy(this.skidMid).addScaledVector(this.skidRight, track - half);
+    this.skidR0.copy(this.skidMid).addScaledVector(this.skidRight, -track + half);
+    this.skidR1.copy(this.skidMid).addScaledVector(this.skidRight, -track - half);
+    this.skidL0.y = yL;
+    this.skidL1.y = yL;
+    this.skidR0.y = yR;
+    this.skidR1.y = yR;
+    this.skidMarkX = pose.x;
+    this.skidMarkZ = pose.z;
+    this.pushSkid(this.skidL0, this.skidL1, this.skidR0, this.skidR1);
   }
 
   private pushSkid(l0: THREE.Vector3, l1: THREE.Vector3, r0: THREE.Vector3, r1: THREE.Vector3): void {

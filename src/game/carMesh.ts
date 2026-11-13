@@ -73,7 +73,7 @@ export class ToyCar {
     if (this.activeKey === key && this.active) return;
     const file = modelFile(type, id, this.mobile);
     const gltf = await this.loader.loadAsync(`${this.base}art/${file}`);
-    const next = prepare(gltf.scene, type, id, this.anisotropy);
+    const next = prepare(gltf.scene, type, id, this.anisotropy, this.mobile);
     this.disposeActive();
     this.type = type;
     this.colorId = id;
@@ -81,7 +81,7 @@ export class ToyCar {
     this.active = next;
     this.group.add(next.root);
     for (const wheel of next.wheels) this.group.add(wheel);
-    refreshTextures(next);
+    refreshTextures(next, this.mobile);
     this.wheels.splice(0, this.wheels.length, ...next.wheels);
     this.parts.splice(0, this.parts.length, ...next.parts);
     this.body = next.body;
@@ -163,7 +163,7 @@ export class ToyCar {
 
 }
 
-function prepare(scene: THREE.Group, type: VehicleType, id: string, anisotropy: number): LoadedCar {
+function prepare(scene: THREE.Group, type: VehicleType, id: string, anisotropy: number, simple: boolean): LoadedCar {
   const axles = axlesFor(type, id);
   const drop = vehicleSpec(type).drop;
   const yellow = id === 'boy4';
@@ -173,8 +173,8 @@ function prepare(scene: THREE.Group, type: VehicleType, id: string, anisotropy: 
   root.position.y = -drop;
   root.add(scene);
 
-  let shared: THREE.MeshPhysicalMaterial | null = null;
-  const wheelMat = new Map<THREE.Material, THREE.MeshPhysicalMaterial>();
+  let shared: THREE.Material | null = null;
+  const wheelMat = new Map<THREE.Material, THREE.Material>();
   scene.traverse((obj) => {
     const mesh = obj as THREE.Mesh;
     if (!mesh.isMesh) return;
@@ -183,11 +183,11 @@ function prepare(scene: THREE.Group, type: VehicleType, id: string, anisotropy: 
     const map = previous?.map ?? null;
     bakeTexture(map, anisotropy);
     const isWheel = WHEEL_NAMES.some((name) => mesh.name === name || mesh.parent?.name === name);
-    if (!shared) shared = paint(map, yellow, false, `${type}_${id}_body`);
-    const material = isWheel ? wheelMat.get(previous) ?? paint(map, yellow, true, `${type}_${id}_wheel`) : shared;
+    if (!shared) shared = paint(map, yellow, false, `${type}_${id}_body`, simple);
+    const material = isWheel ? wheelMat.get(previous) ?? paint(map, yellow, true, `${type}_${id}_wheel`, simple) : shared;
     if (isWheel && previous) wheelMat.set(previous, material);
     mesh.material = material;
-    mesh.castShadow = true;
+    mesh.castShadow = !simple || !isWheel;
     mesh.receiveShadow = true;
     dequantize(mesh.geometry);
   });
@@ -302,7 +302,7 @@ function roundPlate(ctx: CanvasRenderingContext2D, x: number, y: number, w: numb
 const refreshed = new WeakSet<THREE.Mesh>();
 
 /** Build the glossy material at the moment the car is shown. A physical material created earlier uploads black on WebKit. */
-function refreshTextures(model: LoadedCar): void {
+function refreshTextures(model: LoadedCar, simple: boolean): void {
   const apply = (mesh: THREE.Mesh) => {
     if (mesh.name === 'name-plate' || refreshed.has(mesh)) return;
     const current = mesh.material as THREE.MeshPhysicalMaterial;
@@ -316,6 +316,19 @@ function refreshTextures(model: LoadedCar): void {
     tex.needsUpdate = true;
     const wheel = mesh.name.startsWith('Wheel_');
     const yellow = Boolean(current.userData.yellow);
+    if (simple) {
+      const next = new THREE.MeshStandardMaterial({
+        map: tex,
+        color: current.color,
+        roughness: wheel ? 0.88 : 0.34,
+        metalness: 0,
+        envMapIntensity: 0.2,
+      });
+      mesh.material = next;
+      mesh.castShadow = !wheel;
+      refreshed.add(mesh);
+      return;
+    }
     const next = new THREE.MeshPhysicalMaterial({
       map: tex,
       color: current.color,
@@ -373,25 +386,25 @@ function bakeTexture(map: THREE.Texture | null, anisotropy: number): void {
   map.needsUpdate = true;
 }
 
-/** Clearcoat body, dull rubber tires. The scene environment is the coded sky. */
+/** Smooth sheen. A sharp clearcoat was mirroring the tiny sky map as dark blotches. */
 function finishParams(wheel: boolean): THREE.MeshPhysicalMaterialParameters {
   if (wheel) {
     return {
-      roughness: 0.48,
-      metalness: 0.04,
-      specularIntensity: 0.4,
-      clearcoat: 0.08,
-      clearcoatRoughness: 0.55,
-      envMapIntensity: 0.32,
+      roughness: 0.72,
+      metalness: 0.02,
+      specularIntensity: 0.25,
+      clearcoat: 0,
+      clearcoatRoughness: 1,
+      envMapIntensity: 0.08,
     };
   }
   return {
-    roughness: 0.16,
+    roughness: 0.32,
     metalness: 0,
-    specularIntensity: 0.7,
-    clearcoat: 1,
-    clearcoatRoughness: 0.1,
-    envMapIntensity: 1.45,
+    specularIntensity: 0.9,
+    clearcoat: 0.45,
+    clearcoatRoughness: 0.72,
+    envMapIntensity: 0.16,
   };
 }
 
@@ -423,7 +436,16 @@ function compileFinish(material: THREE.MeshPhysicalMaterial, token: string, yell
   };
 }
 
-function paint(map: THREE.Texture | null, yellow: boolean, wheel: boolean, key: string): THREE.MeshPhysicalMaterial {
+function paint(map: THREE.Texture | null, yellow: boolean, wheel: boolean, key: string, simple = false): THREE.Material {
+  if (simple) {
+    return new THREE.MeshStandardMaterial({
+      map,
+      color: yellow && !wheel ? new THREE.Color(1.08, 1.01, 0.78) : new THREE.Color(0xffffff),
+      roughness: wheel ? 0.88 : 0.34,
+      metalness: 0,
+      envMapIntensity: 0.2,
+    });
+  }
   const material = new THREE.MeshPhysicalMaterial({
     map,
     color: yellow && !wheel ? new THREE.Color(1.08, 1.01, 0.78) : new THREE.Color(0xffffff),

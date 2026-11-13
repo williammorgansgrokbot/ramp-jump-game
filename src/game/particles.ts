@@ -33,7 +33,7 @@ const CONFETTI_COLORS = [0xff3b30, 0xffd60a, 0x0a84ff, 0x30d158, 0xff9f0a, 0xbf5
 export class Particles {
   private readonly dust: THREE.Points;
   private readonly sparks: THREE.Points;
-  private readonly smoke: THREE.Points;
+  private readonly smoke: THREE.Points | null;
   private readonly confetti: THREE.InstancedMesh;
   private readonly dustState: Speck[];
   private readonly sparkState: Speck[];
@@ -51,7 +51,7 @@ export class Particles {
   constructor(scene: THREE.Scene, budget: number) {
     const dustCount = Math.round(budget * 1.4);
     const sparkCount = Math.round(budget * 0.7);
-    const smokeCount = Math.round(budget * 0.45);
+    const smokeCount = budget >= 100 ? Math.round(budget * 0.35) : 0;
     const confettiCount = Math.round(budget);
     const circle = softCircle();
 
@@ -101,19 +101,24 @@ export class Particles {
 
     const smokeGeo = new THREE.BufferGeometry();
     smokeGeo.setAttribute('position', new THREE.BufferAttribute(this.smokePos, 3));
-    this.smoke = new THREE.Points(
-      smokeGeo,
-      new THREE.PointsMaterial({
-        map: circle,
-        color: 0xf4f1ea,
-        size: 0.9,
-        transparent: true,
-        opacity: 0.38,
-        depthWrite: false,
-        sizeAttenuation: true,
-      }),
-    );
-    this.smoke.frustumCulled = false;
+    this.smoke = smokeCount
+      ? new THREE.Points(
+        smokeGeo,
+        new THREE.PointsMaterial({
+          map: circle,
+          color: 0xf4f1ea,
+          size: 0.9,
+          transparent: true,
+          opacity: 0.38,
+          depthWrite: false,
+          sizeAttenuation: true,
+        }),
+      )
+      : null;
+    if (this.smoke) {
+      this.smoke.frustumCulled = false;
+      scene.add(this.smoke);
+    }
 
     this.confetti = new THREE.InstancedMesh(
       new THREE.PlaneGeometry(0.16, 0.26),
@@ -134,7 +139,7 @@ export class Particles {
       this.confetti.setMatrixAt(i, this.dummy.matrix);
     }
     this.confetti.instanceColor = new THREE.InstancedBufferAttribute(colors, 3);
-    scene.add(this.dust, this.sparks, this.smoke, this.confetti);
+    scene.add(this.dust, this.sparks, this.confetti);
   }
 
   dustPuff(x: number, y: number, z: number, speed: number): void {
@@ -150,7 +155,11 @@ export class Particles {
   }
 
   smokeBurst(x: number, y: number, z: number): void {
-    const n = Math.min(14, this.smokeState.length);
+    if (!this.smoke) {
+      this.dustBurst(x, y, z);
+      return;
+    }
+    const n = Math.min(10, this.smokeState.length);
     for (let i = 0; i < n; i++) this.spawn(this.smokeState, this.smokePos, this.smokeCursor++, x, y + 0.2, z, 1.6, 0.8, 1.6);
     this.smokeCursor %= this.smokeState.length;
   }
@@ -184,12 +193,15 @@ export class Particles {
   }
 
   update(dt: number): void {
-    stepPoints(this.dustState, this.dustPos, dt, 2.2);
-    (this.dust.geometry.attributes.position as THREE.BufferAttribute).needsUpdate = true;
-    stepPoints(this.sparkState, this.sparkPos, dt, 6);
-    (this.sparks.geometry.attributes.position as THREE.BufferAttribute).needsUpdate = true;
-    stepPoints(this.smokeState, this.smokePos, dt, 1.2);
-    (this.smoke.geometry.attributes.position as THREE.BufferAttribute).needsUpdate = true;
+    if (stepPoints(this.dustState, this.dustPos, dt, 2.2)) {
+      (this.dust.geometry.attributes.position as THREE.BufferAttribute).needsUpdate = true;
+    }
+    if (stepPoints(this.sparkState, this.sparkPos, dt, 6)) {
+      (this.sparks.geometry.attributes.position as THREE.BufferAttribute).needsUpdate = true;
+    }
+    if (this.smoke && stepPoints(this.smokeState, this.smokePos, dt, 1.2)) {
+      (this.smoke.geometry.attributes.position as THREE.BufferAttribute).needsUpdate = true;
+    }
 
     let dirty = false;
     for (let i = 0; i < this.confettiState.length; i++) {
@@ -237,10 +249,12 @@ function hide(positions: Float32Array): void {
   for (let i = 1; i < positions.length; i += 3) positions[i] = -80;
 }
 
-function stepPoints(state: Speck[], positions: Float32Array, dt: number, gravity: number): void {
+function stepPoints(state: Speck[], positions: Float32Array, dt: number, gravity: number): boolean {
+  let live = false;
   for (let i = 0; i < state.length; i++) {
     const speck = state[i];
     if (speck.life <= 0) continue;
+    live = true;
     speck.life -= dt;
     speck.vy -= gravity * dt;
     positions[i * 3] += speck.vx * dt;
@@ -248,4 +262,5 @@ function stepPoints(state: Speck[], positions: Float32Array, dt: number, gravity
     positions[i * 3 + 2] += speck.vz * dt;
     if (speck.life <= 0) positions[i * 3 + 1] = -80;
   }
+  return live;
 }

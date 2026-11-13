@@ -53,7 +53,7 @@ export async function buildWorld(scene: THREE.Scene, renderer: THREE.WebGLRender
   scene.add(codedSky());
   try {
     scene.environment = tinyEnvironment(renderer);
-    scene.environmentIntensity = 0.42;
+    scene.environmentIntensity = 0.55;
   } catch (err) {
     console.info('Environment map skipped', err);
   }
@@ -129,7 +129,7 @@ function codedSky(): THREE.Mesh {
   return mesh;
 }
 
-/** One 64×32 gradient, baked to a PMREM once. No panorama is decoded. */
+/** 64×32 coded sky, baked once. A small sun gives the clearcoat a highlight. No panorama is decoded. */
 function tinyEnvironment(renderer: THREE.WebGLRenderer): THREE.Texture {
   const canvas = document.createElement('canvas');
   canvas.width = 64;
@@ -137,12 +137,18 @@ function tinyEnvironment(renderer: THREE.WebGLRenderer): THREE.Texture {
   const ctx = canvas.getContext('2d');
   if (!ctx) return blankTex();
   const fade = ctx.createLinearGradient(0, 0, 0, 32);
-  fade.addColorStop(0, '#1d6ec8');
-  fade.addColorStop(0.42, '#c5ddf4');
-  fade.addColorStop(0.55, '#e7d7b4');
-  fade.addColorStop(1, '#7eae62');
+  fade.addColorStop(0, `#${SKY_ZENITH.getHexString()}`);
+  fade.addColorStop(0.36, `#${HORIZON.getHexString()}`);
+  fade.addColorStop(0.5, '#efe2c4');
+  fade.addColorStop(1, '#6ea35a');
   ctx.fillStyle = fade;
   ctx.fillRect(0, 0, 64, 32);
+  const glow = ctx.createRadialGradient(46, 7, 0, 46, 7, 8);
+  glow.addColorStop(0, 'rgba(255, 244, 214, 0.95)');
+  glow.addColorStop(0.35, 'rgba(255, 214, 150, 0.45)');
+  glow.addColorStop(1, 'rgba(255, 214, 150, 0)');
+  ctx.fillStyle = glow;
+  ctx.fillRect(36, 0, 20, 16);
   const tex = new THREE.CanvasTexture(canvas);
   tex.mapping = THREE.EquirectangularReflectionMapping;
   tex.colorSpace = THREE.SRGBColorSpace;

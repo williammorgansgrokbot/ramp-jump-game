@@ -315,29 +315,14 @@ function refreshTextures(model: LoadedCar): void {
     tex.anisotropy = current.map.anisotropy;
     tex.needsUpdate = true;
     const wheel = mesh.name.startsWith('Wheel_');
+    const yellow = Boolean(current.userData.yellow);
     const next = new THREE.MeshPhysicalMaterial({
       map: tex,
       color: current.color,
-      roughness: wheel ? 0.62 : 0.42,
-      metalness: 0,
-      specularIntensity: wheel ? 0.18 : 0.32,
-      clearcoat: wheel ? 0.12 : 1,
-      clearcoatRoughness: wheel ? 0.5 : 0.34,
-      envMapIntensity: 0.62,
+      ...finishParams(wheel),
     });
-    if (current.userData.yellow) {
-      next.onBeforeCompile = (shader) => {
-        shader.fragmentShader = shader.fragmentShader.replace(
-          '#include <color_fragment>',
-          `#include <color_fragment>
-           {
-             float luma = dot(diffuseColor.rgb, vec3(0.299, 0.587, 0.114));
-             diffuseColor.rgb = mix(vec3(luma), diffuseColor.rgb, 1.28);
-             diffuseColor.rgb *= vec3(1.04, 0.99, 0.82);
-           }`,
-        );
-      };
-    }
+    const token = `REFRESH_${wheel ? 'W' : 'B'}_${yellow ? 'Y' : 'N'}_${tex.uuid.replace(/[^a-z0-9]/gi, '')}`;
+    compileFinish(next, token, yellow, wheel);
     mesh.material = next;
     refreshed.add(mesh);
   };
@@ -388,19 +373,29 @@ function bakeTexture(map: THREE.Texture | null, anisotropy: number): void {
   map.needsUpdate = true;
 }
 
-function paint(map: THREE.Texture | null, yellow: boolean, wheel: boolean, key: string): THREE.MeshPhysicalMaterial {
-  const material = new THREE.MeshPhysicalMaterial({
-    map,
-    color: yellow && !wheel ? new THREE.Color(1.08, 1.01, 0.78) : new THREE.Color(0xffffff),
-    roughness: wheel ? 0.62 : 0.42,
+/** Clearcoat body, dull rubber tires. The scene environment is the coded sky. */
+function finishParams(wheel: boolean): THREE.MeshPhysicalMaterialParameters {
+  if (wheel) {
+    return {
+      roughness: 0.48,
+      metalness: 0.04,
+      specularIntensity: 0.4,
+      clearcoat: 0.08,
+      clearcoatRoughness: 0.55,
+      envMapIntensity: 0.32,
+    };
+  }
+  return {
+    roughness: 0.16,
     metalness: 0,
-    specularIntensity: wheel ? 0.18 : 0.32,
-    clearcoat: wheel ? 0.12 : 1,
-    clearcoatRoughness: wheel ? 0.5 : 0.34,
-    envMapIntensity: 0.62,
-  });
-  // WebKit reuses one physical-shader program and the later cars' maps sample black.
-  const token = key.replace(/[^a-z0-9]/gi, '_').toUpperCase();
+    specularIntensity: 0.7,
+    clearcoat: 1,
+    clearcoatRoughness: 0.1,
+    envMapIntensity: 1.45,
+  };
+}
+
+function compileFinish(material: THREE.MeshPhysicalMaterial, token: string, yellow: boolean, wheel: boolean): void {
   if (yellow && !wheel) material.userData.yellow = true;
   material.customProgramCacheKey = () => token;
   material.onBeforeCompile = (shader) => {
@@ -416,7 +411,27 @@ function paint(map: THREE.Texture | null, yellow: boolean, wheel: boolean, key: 
          }`,
       );
     }
+    if (wheel) {
+      shader.fragmentShader = shader.fragmentShader.replace(
+        '#include <roughnessmap_fragment>',
+        `float roughnessFactor = roughness;
+         float tireLuma = dot(diffuseColor.rgb, vec3(0.3, 0.59, 0.11));
+         float tire = smoothstep(0.36, 0.1, tireLuma);
+         roughnessFactor = mix(roughnessFactor, 0.96, tire);`,
+      );
+    }
   };
+}
+
+function paint(map: THREE.Texture | null, yellow: boolean, wheel: boolean, key: string): THREE.MeshPhysicalMaterial {
+  const material = new THREE.MeshPhysicalMaterial({
+    map,
+    color: yellow && !wheel ? new THREE.Color(1.08, 1.01, 0.78) : new THREE.Color(0xffffff),
+    ...finishParams(wheel),
+  });
+  // WebKit reuses one physical-shader program and the later cars' maps sample black.
+  const token = key.replace(/[^a-z0-9]/gi, '_').toUpperCase();
+  compileFinish(material, token, yellow, wheel);
   return material;
 }
 

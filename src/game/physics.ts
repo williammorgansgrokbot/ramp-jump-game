@@ -61,6 +61,8 @@ export interface DrivePose {
   extraHits: ContactPoint[];
   looped: boolean;
   stunt: StuntId;
+  /** This step drove over a boost pad. */
+  boosted: boolean;
   /** A spin is playing. */
   tricking: boolean;
   /** This step began a hop. */
@@ -134,6 +136,7 @@ export class DriveWorld {
     extraHits: [],
     looped: false,
     stunt: 'launch',
+    boosted: false,
     tricking: false,
     hopped: false,
     spun: false,
@@ -146,6 +149,7 @@ export class DriveWorld {
   private loopActive = false;
   private loopDone = false;
   private boostCool = 0;
+  private boostedThisStep = false;
 
   static async create(): Promise<DriveWorld> {
     await RAPIER.init();
@@ -447,6 +451,7 @@ export class DriveWorld {
   }
 
   step(dt: number, input: DriveInput): DrivePose {
+    this.boostedThisStep = false;
     const pre = this.chassis.translation();
     const px = pre.x;
     const pz = pre.z;
@@ -605,6 +610,7 @@ export class DriveWorld {
     pose.extraHits = extraHits;
     pose.looped = this.loopDone;
     pose.stunt = this.stuntId;
+    pose.boosted = this.boostedThisStep;
     pose.rescue = y < FIELD.floorY - 2 || x < FIELD.minX - 8 || x > FIELD.maxX + 8 || z < FIELD.minZ - 8 || z > FIELD.maxZ + 8;
     return pose;
   }
@@ -617,6 +623,7 @@ export class DriveWorld {
     const vel = this.chassis.linvel();
     this.chassis.setLinvel({ x: vel.x * 0.2, y: vel.y, z: Math.max(vel.z, 0) + pad.kick }, true);
     this.boostCool = 0.85;
+    this.boostedThisStep = true;
   }
 
   /** A ground tap hops. An air tap plays one full spin and finishes upright. */

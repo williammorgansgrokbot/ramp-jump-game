@@ -40,7 +40,9 @@ html, body {
   z-index: 1;
 }
 #grade {
-  background: radial-gradient(ellipse at center, transparent 48%, rgba(28, 16, 6, 0.42) 100%);
+  background:
+    radial-gradient(ellipse at 72% 0%, rgba(255, 214, 150, 0.16), transparent 28%),
+    radial-gradient(ellipse at center, transparent 62%, rgba(16, 32, 58, 0.22) 100%);
 }
 #speed {
   opacity: 0;

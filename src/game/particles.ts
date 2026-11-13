@@ -33,30 +33,38 @@ const CONFETTI_COLORS = [0xff3b30, 0xffd60a, 0x0a84ff, 0x30d158, 0xff9f0a, 0xbf5
 export class Particles {
   private readonly dust: THREE.Points;
   private readonly sparks: THREE.Points;
+  private readonly smoke: THREE.Points;
   private readonly confetti: THREE.InstancedMesh;
   private readonly dustState: Speck[];
   private readonly sparkState: Speck[];
+  private readonly smokeState: Speck[];
   private readonly confettiState: Speck[];
   private readonly dustPos: Float32Array;
   private readonly sparkPos: Float32Array;
+  private readonly smokePos: Float32Array;
   private readonly dummy = new THREE.Object3D();
   private dustCursor = 0;
   private sparkCursor = 0;
+  private smokeCursor = 0;
   private confettiCursor = 0;
 
   constructor(scene: THREE.Scene, budget: number) {
     const dustCount = Math.round(budget * 1.4);
     const sparkCount = Math.round(budget * 0.7);
+    const smokeCount = Math.round(budget * 0.45);
     const confettiCount = Math.round(budget);
     const circle = softCircle();
 
     this.dustPos = new Float32Array(dustCount * 3);
     this.sparkPos = new Float32Array(sparkCount * 3);
+    this.smokePos = new Float32Array(smokeCount * 3);
     this.dustState = fill(dustCount);
     this.sparkState = fill(sparkCount);
+    this.smokeState = fill(smokeCount);
     this.confettiState = fill(confettiCount);
     hide(this.dustPos);
     hide(this.sparkPos);
+    hide(this.smokePos);
 
     const dustGeo = new THREE.BufferGeometry();
     dustGeo.setAttribute('position', new THREE.BufferAttribute(this.dustPos, 3));
@@ -91,6 +99,22 @@ export class Particles {
     );
     this.sparks.frustumCulled = false;
 
+    const smokeGeo = new THREE.BufferGeometry();
+    smokeGeo.setAttribute('position', new THREE.BufferAttribute(this.smokePos, 3));
+    this.smoke = new THREE.Points(
+      smokeGeo,
+      new THREE.PointsMaterial({
+        map: circle,
+        color: 0xf4f1ea,
+        size: 0.9,
+        transparent: true,
+        opacity: 0.38,
+        depthWrite: false,
+        sizeAttenuation: true,
+      }),
+    );
+    this.smoke.frustumCulled = false;
+
     this.confetti = new THREE.InstancedMesh(
       new THREE.PlaneGeometry(0.16, 0.26),
       new THREE.MeshBasicMaterial({ side: THREE.DoubleSide, vertexColors: false }),
@@ -110,7 +134,7 @@ export class Particles {
       this.confetti.setMatrixAt(i, this.dummy.matrix);
     }
     this.confetti.instanceColor = new THREE.InstancedBufferAttribute(colors, 3);
-    scene.add(this.dust, this.sparks, this.confetti);
+    scene.add(this.dust, this.sparks, this.smoke, this.confetti);
   }
 
   dustPuff(x: number, y: number, z: number, speed: number): void {
@@ -120,9 +144,15 @@ export class Particles {
   }
 
   dustBurst(x: number, y: number, z: number): void {
-    const n = Math.min(16, this.dustState.length);
-    for (let i = 0; i < n; i++) this.spawn(this.dustState, this.dustPos, this.dustCursor++, x, y, z, 2.4, 0.7, 2.4);
+    const n = Math.min(24, this.dustState.length);
+    for (let i = 0; i < n; i++) this.spawn(this.dustState, this.dustPos, this.dustCursor++, x, y, z, 3.2, 0.95, 2.8);
     this.dustCursor %= this.dustState.length;
+  }
+
+  smokeBurst(x: number, y: number, z: number): void {
+    const n = Math.min(14, this.smokeState.length);
+    for (let i = 0; i < n; i++) this.spawn(this.smokeState, this.smokePos, this.smokeCursor++, x, y + 0.2, z, 1.6, 0.8, 1.6);
+    this.smokeCursor %= this.smokeState.length;
   }
 
   sparksAt(x: number, y: number, z: number, amount: number): void {
@@ -158,6 +188,8 @@ export class Particles {
     (this.dust.geometry.attributes.position as THREE.BufferAttribute).needsUpdate = true;
     stepPoints(this.sparkState, this.sparkPos, dt, 6);
     (this.sparks.geometry.attributes.position as THREE.BufferAttribute).needsUpdate = true;
+    stepPoints(this.smokeState, this.smokePos, dt, 1.2);
+    (this.smoke.geometry.attributes.position as THREE.BufferAttribute).needsUpdate = true;
 
     let dirty = false;
     for (let i = 0; i < this.confettiState.length; i++) {

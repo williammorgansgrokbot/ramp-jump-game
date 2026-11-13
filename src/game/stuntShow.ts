@@ -349,15 +349,6 @@ function nodeMesh(name: string, points: THREE.Vector3[], material: THREE.MeshSta
   return mesh;
 }
 
-function chain(steel: Tube[], nodes: THREE.Vector3[], points: THREE.Vector3[], radius: number): void {
-  if (!points.length) return;
-  nodes.push(points[0]);
-  for (let i = 1; i < points.length; i++) {
-    steel.push(tube(points[i - 1], points[i], radius));
-    nodes.push(points[i]);
-  }
-}
-
 function addLoop(build: Build): void {
   const frames = LOOP.frames;
   const tint = frames.map(() => WHITE);
@@ -378,31 +369,54 @@ function addLoop(build: Build): void {
   }
   if (samples.length < 2) return;
 
-  const sideLine = (side: number) => samples.map((frame) => offset(frame, side * (LOOP.halfW + 0.62), 0.08));
-  const left = sideLine(-1);
-  const right = sideLine(1);
-  const r = 0.125;
-  chain(build.steel, build.nodes, left, r);
-  chain(build.steel, build.nodes, right, r);
+  const r = 0.11;
+  const sidePoint = (frame: LoopFrame, side: number): THREE.Vector3 | null => {
+    for (const extra of [0.72, 1.15, 1.7, 2.4, 3.3]) {
+      const point = offset(frame, side * (LOOP.halfW + extra), 0.02);
+      if (segmentClear(point, point, r)) return point;
+    }
+    for (const extra of [0.5, 1.05, 1.7]) {
+      const point = offset(frame, side * (LOOP.halfW + extra), -0.8);
+      if (segmentClear(point, point, r)) return point;
+    }
+    return null;
+  };
+  const left = samples.map((frame) => sidePoint(frame, -1));
+  const right = samples.map((frame) => sidePoint(frame, 1));
+  const link = (points: Array<THREE.Vector3 | null>) => {
+    for (let i = 1; i < points.length; i++) {
+      const a = points[i - 1];
+      const b = points[i];
+      if (!a || !b) continue;
+      placeTube(build.steel, build.nodes, a, b, r);
+    }
+  };
+  link(left);
+  link(right);
 
   let ribS = -10;
   for (let i = 0; i < samples.length; i++) {
     const frame = samples[i];
     if (frame.s - ribS < 2.4) continue;
     ribS = frame.s;
-    const edgeL = offset(frame, -(LOOP.halfW + 0.04), 0.22);
-    const edgeR = offset(frame, LOOP.halfW + 0.04, 0.22);
-    build.steel.push(tube(edgeL, left[i], r));
-    build.steel.push(tube(edgeR, right[i], r));
-    build.nodes.push(edgeL, edgeR, left[i], right[i]);
+    for (const side of [-1, 1]) {
+      const outer = side < 0 ? left[i] : right[i];
+      if (!outer) continue;
+      for (const extra of [0.46, 0.85, 1.3]) {
+        const edge = offset(frame, side * (LOOP.halfW + extra), 0.06);
+        if (placeTube(build.steel, build.nodes, edge, outer, r)) break;
+      }
+    }
   }
 
   const wall = arch.filter((frame) => frame.y > 4 && frame.y < 10);
   if (wall.length) {
     const three = wall.reduce((best, frame) => (frame.z > best.z ? frame : best));
     const nine = wall.reduce((best, frame) => (frame.z < best.z ? frame : best));
-    addTower(build, three, 1, samples, right);
-    addTower(build, nine, -1, samples, left);
+    addTower(build, three, samples, right);
+    addTower(build, three, samples, left);
+    addTower(build, nine, samples, left);
+    addTower(build, nine, samples, right);
   }
 
   for (let i = 0; i < frames.length; i += 8) {
@@ -411,7 +425,7 @@ function addLoop(build: Build): void {
   }
 }
 
-function addTower(build: Build, frame: LoopFrame, side: number, samples: LoopFrame[], line: THREE.Vector3[]): void {
+function addTower(build: Build, frame: LoopFrame, samples: LoopFrame[], line: Array<THREE.Vector3 | null>): void {
   let apexI = 0;
   let best = Infinity;
   for (let i = 0; i < samples.length; i++) {
@@ -422,18 +436,36 @@ function addTower(build: Build, frame: LoopFrame, side: number, samples: LoopFra
     }
   }
   const apex = line[apexI];
-  const zDir = Math.sign(frame.z - LOOP.midZ) || 1;
-  const footA = new THREE.Vector3(apex.x + side * 1.7, 0.14, frame.z + zDir * 0.4);
-  const footB = new THREE.Vector3(apex.x + side * 1.7, 0.14, frame.z + zDir * 3.1);
-  const leg = 0.16;
-  build.steel.push(tube(footA, apex, leg), tube(footB, apex, leg));
-  build.nodes.push(apex, footA, footB);
-  build.diamond.push(plate(footA.x, 0.05, footA.z, 0.85, 0.6), plate(footB.x, 0.05, footB.z, 0.85, 0.6));
-  build.ao.push(disc(footA.x, footA.z, 1.8), disc(footB.x, footB.z, 1.8));
-
-  const braceAt = [apexI + 4, apexI - 4].map((index) => line[Math.max(0, Math.min(line.length - 1, index))]);
-  build.steel.push(tube(footA, braceAt[0], 0.12), tube(footB, braceAt[1], 0.12));
-  build.nodes.push(braceAt[0], braceAt[1]);
+  if (!apex) return;
+  const outward = new THREE.Vector3(apex.x - frame.x, 0, apex.z - frame.z);
+  if (outward.lengthSq() < 1e-4) return;
+  outward.normalize();
+  const along = new THREE.Vector3(-outward.z, 0, outward.x);
+  const feet: THREE.Vector3[] = [];
+  for (const reach of [2.5, 4, 5.8, 8]) {
+    for (const shift of [-1.8, 1.8, -3.4, 3.4]) {
+      const foot = apex.clone().addScaledVector(outward, reach).addScaledVector(along, shift);
+      foot.y = 0.16;
+      if (feet.some((kept) => kept.distanceToSquared(foot) < 2)) continue;
+      if (!segmentClear(foot, apex, 0.15)) continue;
+      feet.push(foot);
+      if (feet.length === 2) break;
+    }
+    if (feet.length === 2) break;
+  }
+  if (feet.length < 2) return;
+  const leg = 0.15;
+  for (const foot of feet) {
+    if (!placeTube(build.steel, build.nodes, foot, apex, leg)) continue;
+    build.diamond.push(plate(foot.x, 0.05, foot.z, 0.7, 0.48));
+    build.ao.push(disc(foot.x, foot.z, 1.35));
+  }
+  for (const step of [3, -3, 6, -6]) {
+    const point = line[Math.max(0, Math.min(line.length - 1, apexI + step))];
+    if (!point) continue;
+    const foot = feet[step > 0 ? 0 : 1];
+    placeTube(build.steel, build.nodes, foot, point, 0.1);
+  }
 }
 
 interface PathPoint {
@@ -480,22 +512,29 @@ function addSlope(
   for (const frame of frames) {
     if (frame.y < 0.9 || frame.z - lastZ < spacing) continue;
     lastZ = frame.z;
-    const l = offset(frame, -(half + 0.15), -0.2);
-    const r = offset(frame, half + 0.15, -0.2);
-    const footL = new THREE.Vector3(frame.x - half - 0.15, 0.12, frame.z);
-    const footR = new THREE.Vector3(frame.x + half + 0.15, 0.12, frame.z);
-    steel.push(tube(footL, l, legR), tube(footR, r, legR), tube(l, r, dense ? 0.13 : 0.1));
-    nodes.push(l, r, footL, footR);
+    const out = legR + 0.34;
+    const l = offset(frame, -(half + out), -0.12);
+    const r = offset(frame, half + out, -0.12);
+    const footL = new THREE.Vector3(l.x, 0.12, frame.z);
+    const footR = new THREE.Vector3(r.x, 0.12, frame.z);
+    const underL = offset(frame, -(half + out), -0.78);
+    const underR = offset(frame, half + out, -0.78);
+    placeTube(steel, nodes, footL, l, legR);
+    placeTube(steel, nodes, footR, r, legR);
+    placeTube(steel, nodes, underL, underR, dense ? 0.11 : 0.09);
     if (dense) {
-      steel.push(tube(footL, footR, 0.11));
+      placeTube(steel, nodes, footL, footR, 0.1);
       build.diamond.push(plate(footL.x, 0.05, footL.z, 0.55, 0.42), plate(footR.x, 0.05, footR.z, 0.55, 0.42));
     }
     if (prev) {
-      steel.push(tube(prev.l, l, dense ? 0.12 : 0.1), tube(prev.r, r, dense ? 0.12 : 0.1));
-      steel.push(tube(prev.footL, footL, dense ? 0.1 : 0.08), tube(prev.footR, footR, dense ? 0.1 : 0.08));
-      steel.push(tube(prev.footL, l, dense ? 0.12 : 0.08), tube(prev.l, footL, dense ? 0.12 : 0.08));
-      steel.push(tube(prev.footR, r, dense ? 0.12 : 0.08), tube(prev.r, footR, dense ? 0.12 : 0.08));
-      nodes.push(prev.l, prev.r, prev.footL, prev.footR);
+      placeTube(steel, nodes, prev.l, l, dense ? 0.12 : 0.1);
+      placeTube(steel, nodes, prev.r, r, dense ? 0.12 : 0.1);
+      placeTube(steel, nodes, prev.footL, footL, dense ? 0.1 : 0.08);
+      placeTube(steel, nodes, prev.footR, footR, dense ? 0.1 : 0.08);
+      placeTube(steel, nodes, prev.footL, l, dense ? 0.11 : 0.08);
+      placeTube(steel, nodes, prev.l, footL, dense ? 0.11 : 0.08);
+      placeTube(steel, nodes, prev.footR, r, dense ? 0.11 : 0.08);
+      placeTube(steel, nodes, prev.r, footR, dense ? 0.11 : 0.08);
     }
     prev = { l, r, footL, footR };
   }
@@ -511,8 +550,8 @@ function addSlope(
   }
 }
 
-function addQuarter(build: Build): void {
-  const { radius: r, z0, laneX, halfW } = QUARTER;
+function quarterFrames(): PathPoint[] {
+  const { radius: r, z0, laneX } = QUARTER;
   const steps = 42;
   const max = Math.PI * 0.46;
   const raw: { x: number; y: number; z: number }[] = [];
@@ -522,7 +561,13 @@ function addQuarter(build: Build): void {
   }
   const lip = raw[raw.length - 1];
   for (let i = 1; i <= 8; i++) raw.push({ x: laneX, y: lip.y, z: lip.z + i * 0.8 });
-  const frames = framesFromPoints(raw);
+  return framesFromPoints(raw);
+}
+
+function addQuarter(build: Build): void {
+  const { halfW, laneX, z0 } = QUARTER;
+  const steps = 42;
+  const frames = quarterFrames();
   const curve = frames.slice(0, steps + 1);
   const platform = frames.slice(steps);
   const white = frames.map(() => WHITE);
@@ -537,25 +582,20 @@ function addQuarter(build: Build): void {
   for (let i = 0; i < curve.length; i += 4) {
     const frame = curve[i];
     for (const side of [-1, 1]) {
-      const edge = offset(frame, side * halfW, 0.05);
-      const foot = new THREE.Vector3(frame.x + side * (halfW + 0.2), 0.2, frame.z);
-      if (frame.y > 0.6) build.steel.push(tube(foot, edge, 0.18));
+      const edge = offset(frame, side * (halfW + 0.5), 0.05);
+      const foot = new THREE.Vector3(frame.x + side * (halfW + 0.72), 0.16, frame.z);
+      if (frame.y > 0.6) placeTube(build.steel, build.nodes, foot, edge, 0.16);
       const prev = side < 0 ? prevL : prevR;
-      if (prev && frame.y > 0.4) build.steel.push(tube(prev, edge, 0.16));
+      if (prev && frame.y > 0.4) placeTube(build.steel, build.nodes, prev, edge, 0.13);
       if (side < 0) prevL = edge;
       else prevR = edge;
     }
   }
   for (const side of [-1, 1]) {
-    const a = offset(curve[Math.floor(curve.length * 0.72)], side * halfW, 0.16);
-    const b = offset(curve[curve.length - 1], side * halfW, 0.16);
-    build.coping.push(tube(a, b, 0.14));
+    const a = offset(curve[Math.floor(curve.length * 0.72)], side * (halfW + 0.42), 0.2);
+    const b = offset(curve[curve.length - 1], side * (halfW + 0.42), 0.2);
+    placeTube(build.coping, build.nodes, a, b, 0.1);
   }
-  build.coping.push(tube(
-    offset(curve[curve.length - 1], -halfW, 0.16),
-    offset(curve[curve.length - 1], halfW, 0.16),
-    0.14,
-  ));
   build.ao.push(disc(laneX, z0 + 1, 3.4));
 }
 
@@ -781,6 +821,13 @@ function tube(a: THREE.Vector3, b: THREE.Vector3, r: number): Tube {
   return { ax: a.x, ay: a.y, az: a.z, bx: b.x, by: b.y, bz: b.z, r };
 }
 
+function placeTube(list: Tube[], nodes: THREE.Vector3[], a: THREE.Vector3, b: THREE.Vector3, radius: number): boolean {
+  if (!segmentClear(a, b, radius)) return false;
+  list.push(tube(a, b, radius));
+  nodes.push(a, b);
+  return true;
+}
+
 function box(x: number, y: number, z: number, hx: number, hy: number, hz: number): THREE.BufferGeometry {
   const geo = new THREE.BoxGeometry(hx * 2, hy * 2, hz * 2);
   geo.translate(x, y, z);
@@ -832,6 +879,266 @@ function softFootprint(): THREE.Texture {
   tex.colorSpace = THREE.NoColorSpace;
   tex.needsUpdate = true;
   return tex;
+}
+
+interface DriveRay {
+  ax: number;
+  ay: number;
+  az: number;
+  bx: number;
+  by: number;
+  bz: number;
+  name: string;
+}
+
+/** Rays across and along every driving line, sitting above the deck and inside the walls. */
+function buildDriveRays(): DriveRay[] {
+  const rays: DriveRay[] = [];
+  const addRibbon = (name: string, frames: Array<PathPoint | LoopFrame>, half: number) => {
+    const inner = Math.max(0.4, half - 0.08);
+    const heights = [0.28, 0.62, 0.98, 1.4, 1.9, 2.4];
+    for (let i = 0; i < frames.length; i++) {
+      const frame = frames[i];
+      for (const h of heights) {
+        const a = offset(frame, -inner, h);
+        const b = offset(frame, inner, h);
+        rays.push({ ax: a.x, ay: a.y, az: a.z, bx: b.x, by: b.y, bz: b.z, name: `${name} across s=${frame.s.toFixed(1)} h=${h}` });
+      }
+      if (i + 1 >= frames.length) continue;
+      const next = frames[i + 1];
+      const lats = [0, -inner * 0.45, inner * 0.45, -inner * 0.85, inner * 0.85];
+      for (const lat of lats) {
+        for (const h of [0.4, 1.05, 1.75]) {
+          const a = offset(frame, lat, h);
+          const b = offset(next, lat, h);
+          rays.push({ ax: a.x, ay: a.y, az: a.z, bx: b.x, by: b.y, bz: b.z, name: `${name} path s=${frame.s.toFixed(1)}` });
+        }
+      }
+    }
+  };
+  addRibbon('loop', LOOP.frames, LOOP.halfW);
+  addRibbon('launch', slopeFrames(0, 50, 78, (z) => launchHeight(z)), 6.4);
+  addRibbon('mega', slopeFrames(MEGA.laneX, 2, MEGA.dropZ1, megaRunHeight), 6.2);
+  addRibbon('gap', slopeFrames(GAP.laneX, GAP.rampZ0, GAP.rampZ1 + 0.2, gapRampHeight), 6);
+  addRibbon('gap-land', slopeFrames(GAP.laneX, GAP.landZ0 - 0.2, GAP.landZ0 + 22, gapLandHeight), 6);
+  addRibbon('quarter', quarterFrames(), QUARTER.halfW);
+  return rays;
+}
+
+let driveRays: DriveRay[] | null = null;
+
+function rays(): DriveRay[] {
+  if (!driveRays) driveRays = buildDriveRays();
+  return driveRays;
+}
+
+/** Shortest distance between two 3D segments. */
+export function segmentGap(
+  ax: number, ay: number, az: number,
+  bx: number, by: number, bz: number,
+  cx: number, cy: number, cz: number,
+  dx: number, dy: number, dz: number,
+): number {
+  const ux = bx - ax;
+  const uy = by - ay;
+  const uz = bz - az;
+  const vx = dx - cx;
+  const vy = dy - cy;
+  const vz = dz - cz;
+  const wx = ax - cx;
+  const wy = ay - cy;
+  const wz = az - cz;
+  const a = ux * ux + uy * uy + uz * uz;
+  const b = ux * vx + uy * vy + uz * vz;
+  const c = vx * vx + vy * vy + vz * vz;
+  const d = ux * wx + uy * wy + uz * wz;
+  const e = vx * wx + vy * vy + vz * wz;
+  const D = a * c - b * b;
+  const SMALL = 1e-8;
+  let sN: number;
+  let sD = D;
+  let tN: number;
+  let tD = D;
+  if (D < SMALL) {
+    sN = 0;
+    sD = 1;
+    tN = e;
+    tD = c;
+  } else {
+    sN = b * e - c * d;
+    tN = a * e - b * d;
+    if (sN < 0) {
+      sN = 0;
+      tN = e;
+      tD = c;
+    } else if (sN > sD) {
+      sN = sD;
+      tN = e + b;
+      tD = c;
+    }
+  }
+  if (tN < 0) {
+    tN = 0;
+    if (-d < 0) sN = 0;
+    else if (-d > a) sN = sD;
+    else {
+      sN = -d;
+      sD = a;
+    }
+  } else if (tN > tD) {
+    tN = tD;
+    if (-d + b < 0) sN = 0;
+    else if (-d + b > a) sN = sD;
+    else {
+      sN = -d + b;
+      sD = a;
+    }
+  }
+  const sc = Math.abs(sN) < SMALL ? 0 : sN / sD;
+  const tc = Math.abs(tN) < SMALL ? 0 : tN / tD;
+  const px = wx + sc * ux - tc * vx;
+  const py = wy + sc * uy - tc * vy;
+  const pz = wz + sc * uz - tc * vz;
+  return Math.hypot(px, py, pz);
+}
+
+function rayBlocked(
+  a: { x: number; y: number; z: number },
+  b: { x: number; y: number; z: number },
+  radius: number,
+): string | null {
+  let closest = '';
+  let best = Infinity;
+  for (const ray of rays()) {
+    const gap = segmentGap(a.x, a.y, a.z, b.x, b.y, b.z, ray.ax, ray.ay, ray.az, ray.bx, ray.by, ray.bz);
+    if (gap < radius && gap < best) {
+      best = gap;
+      closest = ray.name;
+    }
+  }
+  return closest || null;
+}
+
+function segmentClear(a: THREE.Vector3, b: THREE.Vector3, radius: number): boolean {
+  return tubeBlocked(a, b, radius) === null;
+}
+
+interface Corridor {
+  name: string;
+  frames: Array<PathPoint | LoopFrame>;
+  half: number;
+}
+
+let laneCorridors: Corridor[] | null = null;
+
+function corridors(): Corridor[] {
+  if (laneCorridors) return laneCorridors;
+  laneCorridors = [
+    { name: 'loop', frames: LOOP.frames, half: LOOP.halfW },
+    { name: 'launch', frames: slopeFrames(0, 50, 78, (z) => launchHeight(z)), half: 6.4 },
+    { name: 'mega', frames: slopeFrames(MEGA.laneX, 2, MEGA.dropZ1, megaRunHeight), half: 6.2 },
+    { name: 'gap', frames: slopeFrames(GAP.laneX, GAP.rampZ0, GAP.rampZ1 + 0.2, gapRampHeight), half: 6 },
+    { name: 'gap-land', frames: slopeFrames(GAP.laneX, GAP.landZ0 - 0.2, GAP.landZ0 + 22, gapLandHeight), half: 6 },
+    { name: 'quarter', frames: quarterFrames(), half: QUARTER.halfW },
+  ];
+  return laneCorridors;
+}
+
+/** Driving volume: inside the walls, from just above the deck up through a truck. */
+function volumeHit(point: { x: number; y: number; z: number }, radius: number): string | null {
+  for (const corridor of corridors()) {
+    const reach = corridor.half + radius + 2;
+    const reach2 = reach * reach;
+    for (const frame of corridor.frames) {
+      const dx = point.x - frame.x;
+      const dy = point.y - frame.y;
+      const dz = point.z - frame.z;
+      if (dx * dx + dy * dy + dz * dz > reach2) continue;
+      const along = dx * frame.tx + dy * frame.ty + dz * frame.tz;
+      if (Math.abs(along) > 0.62) continue;
+      const lat = dx * frame.lx + dy * frame.ly + dz * frame.lz;
+      const up = dx * frame.nx + dy * frame.ny + dz * frame.nz;
+      if (Math.abs(lat) - radius < corridor.half - 0.02 && up + radius > 0.05 && up - radius < 2.55) {
+        return corridor.name;
+      }
+    }
+  }
+  return null;
+}
+
+function tubeBlocked(
+  a: { x: number; y: number; z: number },
+  b: { x: number; y: number; z: number },
+  radius: number,
+): string | null {
+  const len = Math.hypot(b.x - a.x, b.y - a.y, b.z - a.z);
+  const steps = Math.max(1, Math.ceil(len / 0.18));
+  for (let i = 0; i <= steps; i++) {
+    const u = i / steps;
+    const where = volumeHit({
+      x: a.x + (b.x - a.x) * u,
+      y: a.y + (b.y - a.y) * u,
+      z: a.z + (b.z - a.z) * u,
+    }, radius);
+    if (where) return `lane ${where}`;
+  }
+  return rayBlocked(a, b, radius);
+}
+
+function emptyBuild(): Build {
+  return {
+    deck: [], loopDeck: [], ply: [], diamond: [], stripe: [], hazard: [], hazardEdge: [],
+    rail: [], shell: [], bumper: [], ao: [], foot: [], steel: [], steelBlue: [], coping: [],
+    nodes: [], nodesBlue: [],
+  };
+}
+
+function fillSupports(build: Build): void {
+  addLoop(build);
+  addSlope(build, build.steel, build.deck, 0, 50, 78, 6.4, (z) => launchHeight(z), true);
+  addSlope(build, build.steel, build.deck, MEGA.laneX, 2, MEGA.dropZ1, 6.2, megaRunHeight, true, true);
+  addSlope(build, build.steelBlue, build.deck, GAP.laneX, GAP.rampZ0, GAP.rampZ1 + 0.2, 6.0, gapRampHeight, true);
+  addSlope(build, build.steelBlue, build.diamond, GAP.laneX, GAP.landZ0 - 0.2, GAP.landZ0 + 22, 6.0, gapLandHeight, false);
+  addQuarter(build);
+}
+
+/** True when a segment of the given radius crosses a driving ray. */
+export function pathBlocked(
+  a: { x: number; y: number; z: number },
+  b: { x: number; y: number; z: number },
+  radius: number,
+): boolean {
+  return rayBlocked(a, b, radius) !== null || tubeBlocked(a, b, radius) !== null;
+}
+
+/** Support tubes that cross the driving lane. Empty means the car's path is clear. */
+export function laneObstructions(): string[] {
+  const build = emptyBuild();
+  fillSupports(build);
+  const hits: string[] = [];
+  const groups: { name: string; tubes: Tube[] }[] = [
+    { name: 'yellow', tubes: build.steel },
+    { name: 'blue', tubes: build.steelBlue },
+    { name: 'coping', tubes: build.coping },
+  ];
+  for (const group of groups) {
+    for (const item of group.tubes) {
+      const where = tubeBlocked(
+        { x: item.ax, y: item.ay, z: item.az },
+        { x: item.bx, y: item.by, z: item.bz },
+        item.r,
+      );
+      if (!where) continue;
+      hits.push(`${group.name} r=${item.r.toFixed(2)} ${item.ax.toFixed(1)},${item.ay.toFixed(1)},${item.az.toFixed(1)} -> ${item.bx.toFixed(1)},${item.by.toFixed(1)},${item.bz.toFixed(1)} hits ${where}`);
+    }
+  }
+  return hits;
+}
+
+export function supportTubeCount(): number {
+  const build = emptyBuild();
+  fillSupports(build);
+  return build.steel.length + build.steelBlue.length + build.coping.length;
 }
 
 function disc(x: number, z: number, radius: number): THREE.BufferGeometry {

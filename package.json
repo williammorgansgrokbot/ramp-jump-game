@@ -10,6 +10,7 @@
     "icons": "node scripts/make-icons.mjs",
     "sim": "tsx scripts/check-drive.ts",
     "ground": "tsx scripts/check-ground.ts",
+    "supports": "tsx scripts/check-supports.ts",
     "test": "playwright test",
     "test:ui": "playwright test --headed"
   },

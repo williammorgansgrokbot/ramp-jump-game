@@ -3,6 +3,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 import { carById } from './catalog';
 import { axlesFor, modelFile, vehicleSpec, type Axle, type VehicleType } from './carFit';
+import { loadPolishArt, rimMaterial, type PolishArt } from './polishArt';
 
 export interface Detachable {
   id: string;
@@ -45,6 +46,7 @@ export class ToyCar {
   private base = '';
   private mobile = false;
   private anisotropy = 4;
+  private polish: Promise<PolishArt> | null = null;
   type: VehicleType = 'car';
   colorId = 'boy1';
 
@@ -82,11 +84,28 @@ export class ToyCar {
     this.group.add(next.root);
     for (const wheel of next.wheels) this.group.add(wheel);
     refreshTextures(next, this.mobile);
+    if (type === 'jeep' || type === 'monster') await this.dressPolish(next, type, id);
     this.wheels.splice(0, this.wheels.length, ...next.wheels);
     this.parts.splice(0, this.parts.length, ...next.parts);
     this.body = next.body;
     this.positionAttr = next.positionAttr;
     this.original = next.original;
+  }
+
+  private art(): Promise<PolishArt> {
+    return this.polish ??= loadPolishArt(this.base, this.mobile);
+  }
+
+  /** Sidewall pictures on the jeep and monster. The tread mesh stays. */
+  private async dressPolish(model: LoadedCar, type: VehicleType, id: string): Promise<void> {
+    const art = await this.art();
+    const wheelTex = type === 'monster' ? art.wheelMonster : art.wheelJeep;
+    if (wheelTex) {
+      const material = rimMaterial(wheelTex, id);
+      material.userData.keepMap = true;
+      for (const wheel of model.wheels) addSidewalls(wheel, material);
+    }
+    if (type === 'jeep' && art.windshield) addWindshield(model.root, art.windshield);
   }
 
   private disposeActive(): void {
@@ -101,7 +120,7 @@ export class ToyCar {
       const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
       for (const material of materials) {
         const mapped = material as THREE.MeshPhysicalMaterial;
-        mapped.map?.dispose();
+        if (!material.userData.keepMap) mapped.map?.dispose();
         material.dispose();
       }
     };
@@ -161,6 +180,47 @@ export class ToyCar {
     this.dentCount = 0;
   }
 
+}
+
+function addSidewalls(wheel: THREE.Object3D, material: THREE.Material): void {
+  const mesh = wheel as THREE.Mesh;
+  const geometry = mesh.isMesh ? mesh.geometry : (wheel.children.find((child) => (child as THREE.Mesh).isMesh) as THREE.Mesh | undefined)?.geometry;
+  if (!geometry) return;
+  if (!geometry.boundingBox) geometry.computeBoundingBox();
+  const box = geometry.boundingBox;
+  if (!box) return;
+  const radius = Math.max(box.max.y, box.max.z, -box.min.y, -box.min.z) * 0.97;
+  const halfX = Math.max(box.max.x, -box.min.x);
+  const cap = new THREE.CircleGeometry(radius, 28);
+  for (const side of [-1, 1]) {
+    const face = new THREE.Mesh(cap, material);
+    face.name = 'wheel-cap';
+    face.position.x = side * (halfX + 0.012);
+    face.rotation.y = side > 0 ? Math.PI / 2 : -Math.PI / 2;
+    face.castShadow = false;
+    face.receiveShadow = false;
+    face.renderOrder = 2;
+    wheel.add(face);
+  }
+}
+
+function addWindshield(root: THREE.Object3D, map: THREE.Texture): void {
+  const body = root.getObjectByName('Body');
+  if (!body?.parent) return;
+  const material = new THREE.MeshBasicMaterial({
+    map,
+    transparent: true,
+    alphaTest: 0.05,
+    side: THREE.DoubleSide,
+    depthWrite: false,
+    toneMapped: true,
+  });
+  material.userData.keepMap = true;
+  const pane = new THREE.Mesh(new THREE.PlaneGeometry(0.7, 0.46), material);
+  pane.name = 'windshield';
+  pane.position.set(0, 0.33, 0.43);
+  pane.renderOrder = 3;
+  body.add(pane);
 }
 
 function prepare(scene: THREE.Group, type: VehicleType, id: string, anisotropy: number, simple: boolean): LoadedCar {

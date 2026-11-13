@@ -5,6 +5,7 @@ import { LOOP, QUARTER, GAP, MEGA } from './stunts';
 import { buildStuntExtras } from './stuntMesh';
 import { deckRole, dressDeck, dressGround, loadFieldArt, scatterField, type FieldArt } from './fieldArt';
 import { enabledLaunch } from './catalog';
+import { loadPolishArt } from './polishArt';
 
 /** High and off to the side, so the chase camera does not sit in the roof's specular reflection. */
 export const SUN_DIR = new THREE.Vector3(0.72, 0.66, 0.22).normalize();
@@ -58,6 +59,7 @@ export async function buildWorld(scene: THREE.Scene, renderer: THREE.WebGLRender
     console.info('Environment map skipped', err);
   }
 
+  const polish = await loadPolishArt(base, opts.propLevel !== 'high');
   const [runway, landing] = surfaceGrids();
   scene.add(ground(grass, sand, dirt, field));
   scene.add(driveDeck(runway, asphalt, wood, dirt, 3.2, 0.9, 0.04, 'road', field));
@@ -71,10 +73,10 @@ export async function buildWorld(scene: THREE.Scene, renderer: THREE.WebGLRender
   scene.add(edgeLines());
   scene.add(chevrons());
   scene.add(barriers());
-  scene.add(lipChecks());
+  scene.add(lipChecks(polish.lip));
   scene.add(edgeBulbs());
-  scene.add(pond(sand));
-  const extras = await buildStuntExtras(wood, field, { base, mobile: opts.propLevel !== 'high' });
+  scene.add(pond(sand, polish.water));
+  const extras = await buildStuntExtras(wood, field, { base, mobile: opts.propLevel !== 'high' }, polish);
   scene.add(extras);
   if (field) scatterField(scene, field, opts.propLevel);
   else if (opts.tuftCount > 0) scene.add(grassTufts(opts.tuftCount));
@@ -84,11 +86,12 @@ export async function buildWorld(scene: THREE.Scene, renderer: THREE.WebGLRender
   }
 
   return {
-    update() {
+    update(dt: number) {
       const bob = Math.sin(performance.now() / 160) * 0.05;
       extras.traverse((obj) => {
         if (obj.name === 'boost') obj.position.y = bob;
       });
+      if (polish.water) polish.water.offset.x += dt * 0.015;
     },
   };
 }
@@ -571,7 +574,7 @@ function rampBuild(wood: THREE.Texture | null): THREE.Group {
   return group;
 }
 
-function pond(sand: THREE.Texture | null): THREE.Group {
+function pond(sand: THREE.Texture | null, waterTex: THREE.Texture | null): THREE.Group {
   const group = new THREE.Group();
   const shore = new THREE.Mesh(
     new THREE.CircleGeometry(9.2, 28),
@@ -579,10 +582,10 @@ function pond(sand: THREE.Texture | null): THREE.Group {
   );
   shore.rotation.x = -Math.PI / 2;
   shore.position.set(0, GRASS_Y + 0.02, 88);
-  const water = new THREE.Mesh(
-    new THREE.CircleGeometry(7.2, 28),
-    new THREE.MeshStandardMaterial({ color: 0x3aa4c8, roughness: 0.12, metalness: 0.18, transparent: true, opacity: 0.88 }),
-  );
+  const waterMat = waterTex
+    ? new THREE.MeshStandardMaterial({ map: waterTex, roughness: 0.35, metalness: 0.02 })
+    : new THREE.MeshStandardMaterial({ color: 0x3aa4c8, roughness: 0.12, metalness: 0.18, transparent: true, opacity: 0.88 });
+  const water = new THREE.Mesh(new THREE.CircleGeometry(7.2, 28), waterMat);
   water.rotation.x = -Math.PI / 2;
   water.position.set(0, GRASS_Y + 0.08, 88);
   group.add(shore, water);
@@ -737,11 +740,25 @@ function barriers(): THREE.Group {
   return group;
 }
 
-function lipChecks(): THREE.Mesh {
+function lipChecks(lip: THREE.Texture | null): THREE.Object3D {
+  const z = 74;
+  const y = launchHeight(z) + 0.06;
+  if (lip) {
+    const geo = new THREE.PlaneGeometry(10.6, 0.82);
+    geo.rotateX(-Math.PI / 2);
+    const mesh = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({
+      map: lip,
+      roughness: 0.82,
+      polygonOffset: true,
+      polygonOffsetFactor: -2,
+      polygonOffsetUnits: -2,
+    }));
+    mesh.position.set(0, y, z);
+    mesh.receiveShadow = true;
+    return mesh;
+  }
   const light: THREE.BufferGeometry[] = [];
   const darks: THREE.BufferGeometry[] = [];
-  const z = 74;
-  const y = launchHeight(z) + 0.05;
   for (let i = -7; i <= 7; i++) {
     const tile = new THREE.BoxGeometry(0.7, 0.04, 0.7);
     tile.translate(i * 0.72, y, z);

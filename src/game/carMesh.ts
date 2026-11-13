@@ -3,7 +3,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 import { carById } from './catalog';
 import { axlesFor, modelFile, vehicleSpec, type Axle, type VehicleType } from './carFit';
-import { loadPolishArt, rimMaterial, type PolishArt } from './polishArt';
+import { glassMaterial, loadPolishArt, rimMaterial, type PolishArt } from './polishArt';
 
 export interface Detachable {
   id: string;
@@ -205,22 +205,47 @@ function addSidewalls(wheel: THREE.Object3D, material: THREE.Material): void {
 }
 
 function addWindshield(root: THREE.Object3D, map: THREE.Texture): void {
-  const body = root.getObjectByName('Body');
-  if (!body?.parent) return;
-  const material = new THREE.MeshBasicMaterial({
-    map,
-    transparent: true,
-    alphaTest: 0.05,
-    side: THREE.DoubleSide,
-    depthWrite: false,
-    toneMapped: true,
-  });
-  material.userData.keepMap = true;
-  const pane = new THREE.Mesh(new THREE.PlaneGeometry(0.7, 0.46), material);
+  const body = root.getObjectByName('Body') as THREE.Mesh | undefined;
+  if (!body?.isMesh) return;
+  const current = body.material as THREE.Material;
+  if (!current.userData.glassPunched) {
+    punchGlass(current);
+    current.userData.glassPunched = true;
+    current.needsUpdate = true;
+  }
+  const pane = new THREE.Mesh(new THREE.PlaneGeometry(0.58, 0.46), glassMaterial(map));
   pane.name = 'windshield';
-  pane.position.set(0, 0.33, 0.43);
+  pane.position.set(0, 0.4, 0.3);
   pane.renderOrder = 3;
+  pane.castShadow = false;
+  pane.receiveShadow = false;
   body.add(pane);
+}
+
+/** Drop the flat white windshield. The test is in the body mesh's local space. */
+function punchGlass(material: THREE.Material): void {
+  const previous = material.onBeforeCompile?.bind(material);
+  const previousKey = material.customProgramCacheKey?.bind(material);
+  material.customProgramCacheKey = () => `${previousKey ? previousKey() : 'BODY'}_GLASSHOLE2`;
+  material.onBeforeCompile = (shader, renderer) => {
+    previous?.(shader, renderer);
+    shader.vertexShader = `varying vec3 vGlassLocal;\n${shader.vertexShader}`;
+    shader.vertexShader = shader.vertexShader.replace(
+      '#include <begin_vertex>',
+      `#include <begin_vertex>\n vGlassLocal = position;`,
+    );
+    shader.fragmentShader = `varying vec3 vGlassLocal;\n${shader.fragmentShader}`;
+    shader.fragmentShader = shader.fragmentShader.replace(
+      '#include <dithering_fragment>',
+      `#include <dithering_fragment>
+       {
+         vec3 glass = vGlassLocal - vec3(0.0, 0.389, 0.209);
+         float along = glass.y * 0.900 - glass.z * 0.435;
+         float dist = glass.y * 0.435 + glass.z * 0.900;
+         if (abs(glass.x) < 0.43 && abs(along) < 0.22 && dist < 0.04 && dist > -0.08) discard;
+       }`,
+    );
+  };
 }
 
 function prepare(scene: THREE.Group, type: VehicleType, id: string, anisotropy: number, simple: boolean): LoadedCar {

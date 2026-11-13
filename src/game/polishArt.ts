@@ -80,3 +80,33 @@ export function rimMaterial(map: THREE.Texture, id: string): THREE.MeshBasicMate
   };
   return material;
 }
+
+/** Tinted glass. Bright fog in the picture drops out; the seats stay visible. */
+export function glassMaterial(map: THREE.Texture): THREE.MeshBasicMaterial {
+  const material = new THREE.MeshBasicMaterial({
+    map,
+    transparent: true,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+    toneMapped: true,
+  });
+  material.userData.keepMap = true;
+  material.customProgramCacheKey = () => 'JEEP_GLASS_TINT3';
+  material.onBeforeCompile = (shader) => {
+    shader.fragmentShader = `#define JEEP_GLASS\n${shader.fragmentShader}`;
+    shader.fragmentShader = shader.fragmentShader.replace(
+      '#include <map_fragment>',
+      `#include <map_fragment>
+       float glassLuma = dot(diffuseColor.rgb, vec3(0.299, 0.587, 0.114));
+       float seat = 1.0 - smoothstep(0.42, 0.78, glassLuma);
+       float band = smoothstep(0.52, 0.70, vMapUv.y) * smoothstep(0.92, 0.76, vMapUv.y);
+       vec3 tint = vec3(0.42, 0.58, 0.78);
+       vec3 sky = vec3(0.55, 0.75, 0.95);
+       vec3 glassCol = mix(tint, sky, band);
+       vec3 seatCol = mix(glassCol, diffuseColor.rgb * vec3(0.62, 0.74, 0.88), 0.7);
+       diffuseColor.rgb = mix(glassCol, seatCol, seat * 0.65);
+       diffuseColor.a *= 0.18 + band * 0.2 + seat * 0.28;`,
+    );
+  };
+  return material;
+}

@@ -1,0 +1,135 @@
+{
+  "version": "art-v7",
+  "description": "Polish textures for the Ramp Jump kids' game: pond water, jeep windshield, monster and jeep wheels, boost pad, and launch lip.",
+  "generator": "Grok Bot GenerateImage + Pillow post-process",
+  "webp_quality": 85,
+  "assets": [
+    {
+      "name": "pond_water",
+      "files": [
+        {
+          "file": "pond_water_1024.webp",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 39936
+        },
+        {
+          "file": "pond_water_512.webp",
+          "width": 512,
+          "height": 512,
+          "bytes": 16238
+        }
+      ],
+      "tiles": true,
+      "alpha": false,
+      "tile_axis": "all"
+    },
+    {
+      "name": "jeep_windshield",
+      "files": [
+        {
+          "file": "jeep_windshield_1024.webp",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 19178
+        },
+        {
+          "file": "jeep_windshield_512.webp",
+          "width": 512,
+          "height": 512,
+          "bytes": 11526
+        }
+      ],
+      "tiles": false,
+      "alpha": true
+    },
+    {
+      "name": "wheel_monster",
+      "files": [
+        {
+          "file": "wheel_monster_1024.webp",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 75068
+        },
+        {
+          "file": "wheel_monster_512.webp",
+          "width": 512,
+          "height": 512,
+          "bytes": 28714
+        }
+      ],
+      "tiles": false,
+      "alpha": true
+    },
+    {
+      "name": "wheel_jeep",
+      "files": [
+        {
+          "file": "wheel_jeep_1024.webp",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 41582
+        },
+        {
+          "file": "wheel_jeep_512.webp",
+          "width": 512,
+          "height": 512,
+          "bytes": 23192
+        }
+      ],
+      "tiles": false,
+      "alpha": true
+    },
+    {
+      "name": "boost_pad",
+      "files": [
+        {
+          "file": "boost_pad_1024.webp",
+          "width": 512,
+          "height": 1024,
+          "bytes": 191500
+        },
+        {
+          "file": "boost_pad_512.webp",
+          "width": 256,
+          "height": 512,
+          "bytes": 50490
+        }
+      ],
+      "tiles": false,
+      "alpha": false
+    },
+    {
+      "name": "launch_lip",
+      "files": [
+        {
+          "file": "launch_lip_1024.webp",
+          "width": 1024,
+          "height": 128,
+          "bytes": 20038
+        },
+        {
+          "file": "launch_lip_512.webp",
+          "width": 512,
+          "height": 64,
+          "bytes": 4372
+        }
+      ],
+      "tiles": true,
+      "alpha": false,
+      "tile_axis": "horizontal"
+    }
+  ],
+  "extras": [
+    {
+      "file": "contact_sheet.jpg",
+      "width": 1356,
+      "height": 1048,
+      "bytes": 227094
+    },
+    {
+      "file": "manifest.json"
+    }
+  ]
+}

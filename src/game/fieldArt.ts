@@ -119,7 +119,13 @@ export function dressGround(material: THREE.MeshStandardMaterial, art: FieldArt)
        float pondA = length(vGroundWorld.xz - vec2(0.0, 88.0));
        float pondB = length(vGroundWorld.xz - vec2(${GAP.laneX.toFixed(1)}, 45.0));
        fieldSand = max(1.0 - smoothstep(7.0, 16.0, pondA), 1.0 - smoothstep(7.5, 18.0, pondB));
-       diffuseColor.rgb = mix(diffuseColor.rgb, texture2D(sandMap, vMapUv * 0.8).rgb, fieldSand);`,
+       diffuseColor.rgb = mix(diffuseColor.rgb, texture2D(sandMap, vMapUv * 0.8).rgb, fieldSand);
+       float macro = sin(vGroundWorld.x * 0.031 + 1.7) * sin(vGroundWorld.z * 0.023);
+       float macroPatch = fract(sin(dot(floor(vGroundWorld.xz * 0.17), vec2(27.1, 91.7))) * 12543.2);
+       float shade = clamp(0.5 + macro * 0.16 + (macroPatch - 0.5) * 0.14, 0.0, 1.0);
+       diffuseColor.rgb *= mix(0.92, 1.06, shade);
+       float farFade = smoothstep(150.0, 290.0, length(vGroundWorld.xz - vec2(40.0, 70.0)));
+       diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.773, 0.867, 0.957), farFade);`,
     );
     shader.fragmentShader = shader.fragmentShader.replace(
       '#include <normal_fragment_maps>',
@@ -134,6 +140,7 @@ export function dressGround(material: THREE.MeshStandardMaterial, art: FieldArt)
         vec3 sandN = texture2D( sandNormal, vNormalMapUv * 0.8 ).xyz * 2.0 - 1.0;
         mapN = normalize(mix(mapN, pathN, fieldPath * 0.82));
         mapN = normalize(mix(mapN, sandN, fieldSand));
+        mapN.xy += vec2(sin(vGroundWorld.x * 0.031), sin(vGroundWorld.z * 0.023)) * 0.15;
         normal = normalize( tbn * mapN );
       #endif`,
     );
@@ -195,7 +202,9 @@ export function dressDeck(material: THREE.MeshStandardMaterial, art: FieldArt, r
        diffuseColor.rgb = mix(diffuseColor.rgb, planks, deckPlank);
        float edge = smoothstep(5.4, 7.6, abs(vDeckWorld.x - laneX));
        deckCurb = edge * max(step(0.5, deckRole), 1.0 - step(0.6, abs(laneX - ${LOOP.laneX.toFixed(1)})));
-       diffuseColor.rgb = mix(diffuseColor.rgb, texture2D(curbMap, vec2(vDeckWorld.z * 0.18, edge)).rgb, deckCurb);`,
+       diffuseColor.rgb = mix(diffuseColor.rgb, texture2D(curbMap, vec2(vDeckWorld.z * 0.18, edge)).rgb, deckCurb);
+       float deckGrain = fract(sin(dot(floor(vDeckWorld.xz * 0.35), vec2(19.4, 63.1))) * 21413.7);
+       diffuseColor.rgb *= mix(0.94, 1.05, deckGrain);`,
     );
     shader.fragmentShader = shader.fragmentShader.replace(
       '#include <normal_fragment_maps>',

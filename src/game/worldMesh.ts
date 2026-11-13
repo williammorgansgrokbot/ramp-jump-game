@@ -5,6 +5,7 @@ import { LOOP, QUARTER, GAP, MEGA } from './stunts';
 import { buildStuntExtras } from './stuntMesh';
 import { deckRole, dressDeck, dressGround, loadFieldArt, scatterField, type FieldArt } from './fieldArt';
 import { enabledLaunch } from './catalog';
+import { loadPolishArt } from './polishArt';
 
 /** High and off to the side, so the chase camera does not sit in the roof's specular reflection. */
 export const SUN_DIR = new THREE.Vector3(0.72, 0.66, 0.22).normalize();
@@ -53,11 +54,12 @@ export async function buildWorld(scene: THREE.Scene, renderer: THREE.WebGLRender
   scene.add(codedSky());
   try {
     scene.environment = tinyEnvironment(renderer);
-    scene.environmentIntensity = 0.42;
+    scene.environmentIntensity = 0.55;
   } catch (err) {
     console.info('Environment map skipped', err);
   }
 
+  const polish = await loadPolishArt(base, opts.propLevel !== 'high');
   const [runway, landing] = surfaceGrids();
   scene.add(ground(grass, sand, dirt, field));
   scene.add(driveDeck(runway, asphalt, wood, dirt, 3.2, 0.9, 0.04, 'road', field));
@@ -71,32 +73,32 @@ export async function buildWorld(scene: THREE.Scene, renderer: THREE.WebGLRender
   scene.add(edgeLines());
   scene.add(chevrons());
   scene.add(barriers());
-  scene.add(lipChecks());
+  scene.add(lipChecks(polish.lip));
   scene.add(edgeBulbs());
-  scene.add(pond(sand));
-  const extras = await buildStuntExtras(wood, field, { base, mobile: opts.propLevel !== 'high' });
+  scene.add(pond(sand, polish.water));
+  const extras = await buildStuntExtras(wood, field, { base, mobile: opts.propLevel !== 'high' }, polish);
   scene.add(extras);
   if (field) scatterField(scene, field, opts.propLevel);
   else if (opts.tuftCount > 0) scene.add(grassTufts(opts.tuftCount));
-  scene.add(fieldHedges());
   if (trees && treeMeta.length > 0) {
     const sprites = scatterTrees(trees, treeMeta, opts.treeCount);
     scene.add(sprites.shadows, sprites.foliage);
   }
 
   return {
-    update() {
+    update(dt: number) {
       const bob = Math.sin(performance.now() / 160) * 0.05;
       extras.traverse((obj) => {
         if (obj.name === 'boost') obj.position.y = bob;
       });
+      if (polish.water) polish.water.offset.x += dt * 0.015;
     },
   };
 }
 
-/** A few dozen triangles. Deep blue overhead, pale blue at the horizon, no texture. */
+/** A smooth sky sphere. Few segments read as a hard-edged slab from the landing. */
 function codedSky(): THREE.Mesh {
-  const geo = new THREE.SphereGeometry(700, 12, 8);
+  const geo = new THREE.SphereGeometry(900, 48, 32);
   const mat = new THREE.ShaderMaterial({
     side: THREE.BackSide,
     depthWrite: false,
@@ -129,7 +131,7 @@ function codedSky(): THREE.Mesh {
   return mesh;
 }
 
-/** One 64×32 gradient, baked to a PMREM once. No panorama is decoded. */
+/** 64×32 coded sky, baked once. A small sun gives the clearcoat a highlight. No panorama is decoded. */
 function tinyEnvironment(renderer: THREE.WebGLRenderer): THREE.Texture {
   const canvas = document.createElement('canvas');
   canvas.width = 64;
@@ -137,10 +139,10 @@ function tinyEnvironment(renderer: THREE.WebGLRenderer): THREE.Texture {
   const ctx = canvas.getContext('2d');
   if (!ctx) return blankTex();
   const fade = ctx.createLinearGradient(0, 0, 0, 32);
-  fade.addColorStop(0, '#1d6ec8');
-  fade.addColorStop(0.42, '#c5ddf4');
-  fade.addColorStop(0.55, '#e7d7b4');
-  fade.addColorStop(1, '#7eae62');
+  fade.addColorStop(0, `#${SKY_ZENITH.getHexString()}`);
+  fade.addColorStop(0.36, `#${HORIZON.getHexString()}`);
+  fade.addColorStop(0.5, '#efe2c4');
+  fade.addColorStop(1, '#6ea35a');
   ctx.fillStyle = fade;
   ctx.fillRect(0, 0, 64, 32);
   const tex = new THREE.CanvasTexture(canvas);
@@ -153,29 +155,6 @@ function tinyEnvironment(renderer: THREE.WebGLRenderer): THREE.Texture {
   tex.dispose();
   pmrem.dispose();
   return env;
-}
-
-function fieldHedges(): THREE.Group {
-  const group = new THREE.Group();
-  const mat = new THREE.MeshStandardMaterial({ color: 0x2f7d3a, roughness: 0.9 });
-  const spanX = FIELD.maxX - FIELD.minX;
-  const spanZ = FIELD.maxZ - FIELD.minZ;
-  const midX = (FIELD.minX + FIELD.maxX) / 2;
-  const midZ = (FIELD.minZ + FIELD.maxZ) / 2;
-  const hedges = [
-    { x: midX, z: FIELD.minZ + 1.2, w: spanX, d: 1.4 },
-    { x: midX, z: FIELD.maxZ - 1.2, w: spanX, d: 1.4 },
-    { x: FIELD.minX + 1.2, z: midZ, w: 1.4, d: spanZ },
-    { x: FIELD.maxX - 1.2, z: midZ, w: 1.4, d: spanZ },
-  ];
-  for (const hedge of hedges) {
-    const mesh = new THREE.Mesh(new THREE.BoxGeometry(hedge.w, 1.5, hedge.d), mat);
-    mesh.position.set(hedge.x, GRASS_Y + 0.75, hedge.z);
-    mesh.castShadow = true;
-    mesh.receiveShadow = true;
-    group.add(mesh);
-  }
-  return group;
 }
 
 function loadTexture(url: string, anisotropy: number, repeat: boolean): Promise<THREE.Texture | null> {
@@ -221,7 +200,6 @@ function ground(grass: THREE.Texture | null, sand: THREE.Texture | null, dirt: T
     color: grass ? 0xffffff : 0x3f9a45,
     roughness: 0.96,
     metalness: 0,
-    side: THREE.DoubleSide,
   });
   material.onBeforeCompile = (shader) => {
     if (!art) {
@@ -237,7 +215,7 @@ function ground(grass: THREE.Texture | null, sand: THREE.Texture | null, dirt: T
        float ahead = smoothstep(175.0, 250.0, transformed.z);
        float back = smoothstep(-16.0, -80.0, transformed.z);
        float wave = sin(transformed.x * 0.042) * sin(transformed.z * 0.027);
-       transformed.y += (side * 0.9 + ahead * 0.55 + back * 0.35) * (1.45 * wave + 0.4 * sin(transformed.z * 0.018));`,
+       transformed.y += (side * 0.22 + ahead * 0.1 + back * 0.12) * (0.55 * wave + 0.12 * sin(transformed.z * 0.018));`,
     );
     shader.vertexShader = shader.vertexShader.replace(
       '#include <project_vertex>',
@@ -398,6 +376,16 @@ function scatterTrees(atlas: THREE.Texture | null, meta: TreeMeta[], count: numb
   if (!atlas) return { foliage: new THREE.InstancedMesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial(), 1), shadows: new THREE.InstancedMesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial(), 1) };
   const rand = mulberry32(0x5eed);
   const placed: { x: number; z: number; h: number; kind: number }[] = [];
+  const horizon = Math.min(18, Math.max(8, Math.floor(count * 0.32)));
+  for (let i = 0; i < horizon; i++) {
+    const along = i / Math.max(1, horizon - 1);
+    placed.push({
+      x: -36 + along * 230,
+      z: 198 + (i % 3) * 7,
+      h: 5.2 + (i % 4) * 1.1,
+      kind: i % TREE_KINDS.length,
+    });
+  }
   let guard = 0;
   while (placed.length < count && guard < count * 40) {
     guard += 1;
@@ -586,7 +574,7 @@ function rampBuild(wood: THREE.Texture | null): THREE.Group {
   return group;
 }
 
-function pond(sand: THREE.Texture | null): THREE.Group {
+function pond(sand: THREE.Texture | null, waterTex: THREE.Texture | null): THREE.Group {
   const group = new THREE.Group();
   const shore = new THREE.Mesh(
     new THREE.CircleGeometry(9.2, 28),
@@ -594,10 +582,10 @@ function pond(sand: THREE.Texture | null): THREE.Group {
   );
   shore.rotation.x = -Math.PI / 2;
   shore.position.set(0, GRASS_Y + 0.02, 88);
-  const water = new THREE.Mesh(
-    new THREE.CircleGeometry(7.2, 28),
-    new THREE.MeshStandardMaterial({ color: 0x3aa4c8, roughness: 0.12, metalness: 0.18, transparent: true, opacity: 0.88 }),
-  );
+  const waterMat = waterTex
+    ? new THREE.MeshStandardMaterial({ map: waterTex, roughness: 0.35, metalness: 0.02 })
+    : new THREE.MeshStandardMaterial({ color: 0x3aa4c8, roughness: 0.12, metalness: 0.18, transparent: true, opacity: 0.88 });
+  const water = new THREE.Mesh(new THREE.CircleGeometry(7.2, 28), waterMat);
   water.rotation.x = -Math.PI / 2;
   water.position.set(0, GRASS_Y + 0.08, 88);
   group.add(shore, water);
@@ -731,25 +719,46 @@ function chevrons(): THREE.Mesh {
 
 function barriers(): THREE.Group {
   const group = new THREE.Group();
+  const byColor = new Map<number, THREE.BufferGeometry[]>();
   for (const box of barrierBoxes()) {
-    const mesh = new THREE.Mesh(
-      new THREE.BoxGeometry(box.half.x * 2, box.half.y * 2, box.half.z * 2),
-      new THREE.MeshStandardMaterial({ color: box.color, roughness: 0.55, metalness: 0.04 }),
-    );
-    mesh.position.set(box.center.x, box.center.y, box.center.z);
-    mesh.rotation.x = box.rotX;
-    mesh.castShadow = true;
+    const geo = new THREE.BoxGeometry(box.half.x * 2, box.half.y * 2, box.half.z * 2);
+    if (box.rotX) geo.rotateX(box.rotX);
+    geo.translate(box.center.x, box.center.y, box.center.z);
+    const list = byColor.get(box.color) ?? [];
+    list.push(geo);
+    byColor.set(box.color, list);
+  }
+  for (const [color, geos] of byColor) {
+    const merged = mergeGeometries(geos);
+    for (const geo of geos) geo.dispose();
+    if (!merged) continue;
+    const mesh = new THREE.Mesh(merged, new THREE.MeshStandardMaterial({ color, roughness: 0.55, metalness: 0.04 }));
+    mesh.castShadow = false;
     mesh.receiveShadow = true;
     group.add(mesh);
   }
   return group;
 }
 
-function lipChecks(): THREE.Mesh {
+function lipChecks(lip: THREE.Texture | null): THREE.Object3D {
+  const z = 74;
+  const y = launchHeight(z) + 0.06;
+  if (lip) {
+    const geo = new THREE.PlaneGeometry(10.6, 0.82);
+    geo.rotateX(-Math.PI / 2);
+    const mesh = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({
+      map: lip,
+      roughness: 0.82,
+      polygonOffset: true,
+      polygonOffsetFactor: -2,
+      polygonOffsetUnits: -2,
+    }));
+    mesh.position.set(0, y, z);
+    mesh.receiveShadow = true;
+    return mesh;
+  }
   const light: THREE.BufferGeometry[] = [];
   const darks: THREE.BufferGeometry[] = [];
-  const z = 74;
-  const y = launchHeight(z) + 0.05;
   for (let i = -7; i <= 7; i++) {
     const tile = new THREE.BoxGeometry(0.7, 0.04, 0.7);
     tile.translate(i * 0.72, y, z);
@@ -763,17 +772,23 @@ function lipChecks(): THREE.Mesh {
   return mesh;
 }
 
-function edgeBulbs(): THREE.Group {
-  const group = new THREE.Group();
-  const mat = new THREE.MeshStandardMaterial({ color: 0xfff4cf, emissive: 0xffc14a, emissiveIntensity: 0.6, roughness: 0.4 });
+function edgeBulbs(): THREE.InstancedMesh {
   const launch = enabledLaunch();
+  const spots: { x: number; y: number; z: number }[] = [];
   for (let z = launch.z; z <= launch.z + launch.length; z += 4) {
     const y = launchHeight(Math.min(z, launch.z + launch.length)) + 0.25;
-    for (const x of [-7.6, 7.6]) {
-      const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.14, 8, 8), mat);
-      bulb.position.set(x, y, z);
-      group.add(bulb);
-    }
+    for (const x of [-7.6, 7.6]) spots.push({ x, y, z });
   }
-  return group;
+  const mat = new THREE.MeshStandardMaterial({ color: 0xfff4cf, emissive: 0xffc14a, emissiveIntensity: 0.6, roughness: 0.4 });
+  const mesh = new THREE.InstancedMesh(new THREE.SphereGeometry(0.14, 6, 5), mat, Math.max(1, spots.length));
+  const dummy = new THREE.Object3D();
+  spots.forEach((spot, index) => {
+    dummy.position.set(spot.x, spot.y, spot.z);
+    dummy.updateMatrix();
+    mesh.setMatrixAt(index, dummy.matrix);
+  });
+  mesh.count = Math.max(1, spots.length);
+  mesh.castShadow = false;
+  mesh.receiveShadow = false;
+  return mesh;
 }

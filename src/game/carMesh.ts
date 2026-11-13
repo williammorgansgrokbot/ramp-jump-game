@@ -3,6 +3,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 import { carById } from './catalog';
 import { axlesFor, modelFile, vehicleSpec, type Axle, type VehicleType } from './carFit';
+import { loadPolishArt, rimMaterial, type PolishArt } from './polishArt';
 
 export interface Detachable {
   id: string;
@@ -45,6 +46,7 @@ export class ToyCar {
   private base = '';
   private mobile = false;
   private anisotropy = 4;
+  private polish: Promise<PolishArt> | null = null;
   type: VehicleType = 'car';
   colorId = 'boy1';
 
@@ -73,7 +75,7 @@ export class ToyCar {
     if (this.activeKey === key && this.active) return;
     const file = modelFile(type, id, this.mobile);
     const gltf = await this.loader.loadAsync(`${this.base}art/${file}`);
-    const next = prepare(gltf.scene, type, id, this.anisotropy);
+    const next = prepare(gltf.scene, type, id, this.anisotropy, this.mobile);
     this.disposeActive();
     this.type = type;
     this.colorId = id;
@@ -81,12 +83,29 @@ export class ToyCar {
     this.active = next;
     this.group.add(next.root);
     for (const wheel of next.wheels) this.group.add(wheel);
-    refreshTextures(next);
+    refreshTextures(next, this.mobile);
+    if (type === 'jeep' || type === 'monster') await this.dressPolish(next, type, id);
     this.wheels.splice(0, this.wheels.length, ...next.wheels);
     this.parts.splice(0, this.parts.length, ...next.parts);
     this.body = next.body;
     this.positionAttr = next.positionAttr;
     this.original = next.original;
+  }
+
+  private art(): Promise<PolishArt> {
+    return this.polish ??= loadPolishArt(this.base, this.mobile);
+  }
+
+  /** Sidewall pictures on the jeep and monster. The tread mesh stays. */
+  private async dressPolish(model: LoadedCar, type: VehicleType, id: string): Promise<void> {
+    const art = await this.art();
+    const wheelTex = type === 'monster' ? art.wheelMonster : art.wheelJeep;
+    if (wheelTex) {
+      const material = rimMaterial(wheelTex, id);
+      material.userData.keepMap = true;
+      for (const wheel of model.wheels) addSidewalls(wheel, material);
+    }
+    if (type === 'jeep' && art.windshield) addWindshield(model.root, art.windshield);
   }
 
   private disposeActive(): void {
@@ -101,7 +120,7 @@ export class ToyCar {
       const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
       for (const material of materials) {
         const mapped = material as THREE.MeshPhysicalMaterial;
-        mapped.map?.dispose();
+        if (!material.userData.keepMap) mapped.map?.dispose();
         material.dispose();
       }
     };
@@ -163,7 +182,48 @@ export class ToyCar {
 
 }
 
-function prepare(scene: THREE.Group, type: VehicleType, id: string, anisotropy: number): LoadedCar {
+function addSidewalls(wheel: THREE.Object3D, material: THREE.Material): void {
+  const mesh = wheel as THREE.Mesh;
+  const geometry = mesh.isMesh ? mesh.geometry : (wheel.children.find((child) => (child as THREE.Mesh).isMesh) as THREE.Mesh | undefined)?.geometry;
+  if (!geometry) return;
+  if (!geometry.boundingBox) geometry.computeBoundingBox();
+  const box = geometry.boundingBox;
+  if (!box) return;
+  const radius = Math.max(box.max.y, box.max.z, -box.min.y, -box.min.z) * 0.97;
+  const halfX = Math.max(box.max.x, -box.min.x);
+  const cap = new THREE.CircleGeometry(radius, 28);
+  for (const side of [-1, 1]) {
+    const face = new THREE.Mesh(cap, material);
+    face.name = 'wheel-cap';
+    face.position.x = side * (halfX + 0.012);
+    face.rotation.y = side > 0 ? Math.PI / 2 : -Math.PI / 2;
+    face.castShadow = false;
+    face.receiveShadow = false;
+    face.renderOrder = 2;
+    wheel.add(face);
+  }
+}
+
+function addWindshield(root: THREE.Object3D, map: THREE.Texture): void {
+  const body = root.getObjectByName('Body');
+  if (!body?.parent) return;
+  const material = new THREE.MeshBasicMaterial({
+    map,
+    transparent: true,
+    alphaTest: 0.05,
+    side: THREE.DoubleSide,
+    depthWrite: false,
+    toneMapped: true,
+  });
+  material.userData.keepMap = true;
+  const pane = new THREE.Mesh(new THREE.PlaneGeometry(0.7, 0.46), material);
+  pane.name = 'windshield';
+  pane.position.set(0, 0.33, 0.43);
+  pane.renderOrder = 3;
+  body.add(pane);
+}
+
+function prepare(scene: THREE.Group, type: VehicleType, id: string, anisotropy: number, simple: boolean): LoadedCar {
   const axles = axlesFor(type, id);
   const drop = vehicleSpec(type).drop;
   const yellow = id === 'boy4';
@@ -173,8 +233,8 @@ function prepare(scene: THREE.Group, type: VehicleType, id: string, anisotropy: 
   root.position.y = -drop;
   root.add(scene);
 
-  let shared: THREE.MeshPhysicalMaterial | null = null;
-  const wheelMat = new Map<THREE.Material, THREE.MeshPhysicalMaterial>();
+  let shared: THREE.Material | null = null;
+  const wheelMat = new Map<THREE.Material, THREE.Material>();
   scene.traverse((obj) => {
     const mesh = obj as THREE.Mesh;
     if (!mesh.isMesh) return;
@@ -183,11 +243,11 @@ function prepare(scene: THREE.Group, type: VehicleType, id: string, anisotropy: 
     const map = previous?.map ?? null;
     bakeTexture(map, anisotropy);
     const isWheel = WHEEL_NAMES.some((name) => mesh.name === name || mesh.parent?.name === name);
-    if (!shared) shared = paint(map, yellow, false, `${type}_${id}_body`);
-    const material = isWheel ? wheelMat.get(previous) ?? paint(map, yellow, true, `${type}_${id}_wheel`) : shared;
+    if (!shared) shared = paint(map, yellow, false, `${type}_${id}_body`, simple);
+    const material = isWheel ? wheelMat.get(previous) ?? paint(map, yellow, true, `${type}_${id}_wheel`, simple) : shared;
     if (isWheel && previous) wheelMat.set(previous, material);
     mesh.material = material;
-    mesh.castShadow = true;
+    mesh.castShadow = !simple || !isWheel;
     mesh.receiveShadow = true;
     dequantize(mesh.geometry);
   });
@@ -302,7 +362,7 @@ function roundPlate(ctx: CanvasRenderingContext2D, x: number, y: number, w: numb
 const refreshed = new WeakSet<THREE.Mesh>();
 
 /** Build the glossy material at the moment the car is shown. A physical material created earlier uploads black on WebKit. */
-function refreshTextures(model: LoadedCar): void {
+function refreshTextures(model: LoadedCar, simple: boolean): void {
   const apply = (mesh: THREE.Mesh) => {
     if (mesh.name === 'name-plate' || refreshed.has(mesh)) return;
     const current = mesh.material as THREE.MeshPhysicalMaterial;
@@ -315,29 +375,27 @@ function refreshTextures(model: LoadedCar): void {
     tex.anisotropy = current.map.anisotropy;
     tex.needsUpdate = true;
     const wheel = mesh.name.startsWith('Wheel_');
+    const yellow = Boolean(current.userData.yellow);
+    if (simple) {
+      const next = new THREE.MeshStandardMaterial({
+        map: tex,
+        color: current.color,
+        roughness: wheel ? 0.88 : 0.34,
+        metalness: 0,
+        envMapIntensity: 0.2,
+      });
+      mesh.material = next;
+      mesh.castShadow = !wheel;
+      refreshed.add(mesh);
+      return;
+    }
     const next = new THREE.MeshPhysicalMaterial({
       map: tex,
       color: current.color,
-      roughness: wheel ? 0.62 : 0.42,
-      metalness: 0,
-      specularIntensity: wheel ? 0.18 : 0.32,
-      clearcoat: wheel ? 0.12 : 1,
-      clearcoatRoughness: wheel ? 0.5 : 0.34,
-      envMapIntensity: 0.62,
+      ...finishParams(wheel),
     });
-    if (current.userData.yellow) {
-      next.onBeforeCompile = (shader) => {
-        shader.fragmentShader = shader.fragmentShader.replace(
-          '#include <color_fragment>',
-          `#include <color_fragment>
-           {
-             float luma = dot(diffuseColor.rgb, vec3(0.299, 0.587, 0.114));
-             diffuseColor.rgb = mix(vec3(luma), diffuseColor.rgb, 1.28);
-             diffuseColor.rgb *= vec3(1.04, 0.99, 0.82);
-           }`,
-        );
-      };
-    }
+    const token = `REFRESH_${wheel ? 'W' : 'B'}_${yellow ? 'Y' : 'N'}_${tex.uuid.replace(/[^a-z0-9]/gi, '')}`;
+    compileFinish(next, token, yellow, wheel);
     mesh.material = next;
     refreshed.add(mesh);
   };
@@ -388,19 +446,29 @@ function bakeTexture(map: THREE.Texture | null, anisotropy: number): void {
   map.needsUpdate = true;
 }
 
-function paint(map: THREE.Texture | null, yellow: boolean, wheel: boolean, key: string): THREE.MeshPhysicalMaterial {
-  const material = new THREE.MeshPhysicalMaterial({
-    map,
-    color: yellow && !wheel ? new THREE.Color(1.08, 1.01, 0.78) : new THREE.Color(0xffffff),
-    roughness: wheel ? 0.62 : 0.42,
+/** Smooth sheen. A sharp clearcoat was mirroring the tiny sky map as dark blotches. */
+function finishParams(wheel: boolean): THREE.MeshPhysicalMaterialParameters {
+  if (wheel) {
+    return {
+      roughness: 0.72,
+      metalness: 0.02,
+      specularIntensity: 0.25,
+      clearcoat: 0,
+      clearcoatRoughness: 1,
+      envMapIntensity: 0.08,
+    };
+  }
+  return {
+    roughness: 0.32,
     metalness: 0,
-    specularIntensity: wheel ? 0.18 : 0.32,
-    clearcoat: wheel ? 0.12 : 1,
-    clearcoatRoughness: wheel ? 0.5 : 0.34,
-    envMapIntensity: 0.62,
-  });
-  // WebKit reuses one physical-shader program and the later cars' maps sample black.
-  const token = key.replace(/[^a-z0-9]/gi, '_').toUpperCase();
+    specularIntensity: 0.9,
+    clearcoat: 0.45,
+    clearcoatRoughness: 0.72,
+    envMapIntensity: 0.16,
+  };
+}
+
+function compileFinish(material: THREE.MeshPhysicalMaterial, token: string, yellow: boolean, wheel: boolean): void {
   if (yellow && !wheel) material.userData.yellow = true;
   material.customProgramCacheKey = () => token;
   material.onBeforeCompile = (shader) => {
@@ -416,7 +484,36 @@ function paint(map: THREE.Texture | null, yellow: boolean, wheel: boolean, key: 
          }`,
       );
     }
+    if (wheel) {
+      shader.fragmentShader = shader.fragmentShader.replace(
+        '#include <roughnessmap_fragment>',
+        `float roughnessFactor = roughness;
+         float tireLuma = dot(diffuseColor.rgb, vec3(0.3, 0.59, 0.11));
+         float tire = smoothstep(0.36, 0.1, tireLuma);
+         roughnessFactor = mix(roughnessFactor, 0.96, tire);`,
+      );
+    }
   };
+}
+
+function paint(map: THREE.Texture | null, yellow: boolean, wheel: boolean, key: string, simple = false): THREE.Material {
+  if (simple) {
+    return new THREE.MeshStandardMaterial({
+      map,
+      color: yellow && !wheel ? new THREE.Color(1.08, 1.01, 0.78) : new THREE.Color(0xffffff),
+      roughness: wheel ? 0.88 : 0.34,
+      metalness: 0,
+      envMapIntensity: 0.2,
+    });
+  }
+  const material = new THREE.MeshPhysicalMaterial({
+    map,
+    color: yellow && !wheel ? new THREE.Color(1.08, 1.01, 0.78) : new THREE.Color(0xffffff),
+    ...finishParams(wheel),
+  });
+  // WebKit reuses one physical-shader program and the later cars' maps sample black.
+  const token = key.replace(/[^a-z0-9]/gi, '_').toUpperCase();
+  compileFinish(material, token, yellow, wheel);
   return material;
 }
 

@@ -109,6 +109,23 @@ export class Game {
   private invertTime = 0;
   private speedEl: HTMLElement | null = null;
   private contact: THREE.Mesh | null = null;
+  private skid: THREE.Mesh | null = null;
+  private skidPos: Float32Array | null = null;
+  private skidCount = 0;
+  private skidBreak = true;
+  private skidHold = 0;
+  private readonly skidSamples = 28;
+  private readonly skidRight = new THREE.Vector3();
+  private readonly skidRear = new THREE.Vector3();
+  private readonly skidMid = new THREE.Vector3();
+  private readonly skidL0 = new THREE.Vector3();
+  private readonly skidL1 = new THREE.Vector3();
+  private readonly skidR0 = new THREE.Vector3();
+  private readonly skidR1 = new THREE.Vector3();
+  private skidMarkX = Number.NaN;
+  private skidMarkZ = Number.NaN;
+  private readonly yawQ = new THREE.Quaternion();
+  private readonly tiltQ = new THREE.Quaternion();
   private readonly look = new THREE.Vector3();
   private readonly desired = new THREE.Vector3();
   private readonly lookTarget = new THREE.Vector3();
@@ -139,21 +156,21 @@ export class Game {
     await this.makeRenderer(canvas, this.quality.antialias);
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1;
+    this.renderer.toneMappingExposure = 1.04;
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = this.quality.level === 'high' ? THREE.PCFSoftShadowMap : THREE.PCFShadowMap;
     this.renderer.setPixelRatio(this.quality.dpr);
     this.renderer.setClearColor(HORIZON, 1);
 
     this.scene = new THREE.Scene();
-    this.scene.fog = new THREE.Fog(HORIZON, 140, 420);
-    this.scene.environmentIntensity = 0.4;
+    this.scene.fog = new THREE.Fog(HORIZON, 150, 480);
+    this.scene.environmentIntensity = 0.55;
     this.camera = new THREE.PerspectiveCamera(58, 1, 0.15, 500);
     this.camera.position.set(0, 4.5, -6);
 
-    const hemi = new THREE.HemisphereLight(SKY_TINT, 0xcbb892, 0.62);
+    const hemi = new THREE.HemisphereLight(SKY_TINT, 0xcbb892, 0.66);
     this.scene.add(hemi);
-    this.sun = new THREE.DirectionalLight(0xffe4b8, 1.15);
+    this.sun = new THREE.DirectionalLight(0xfff0d4, 1.16);
     this.sun.castShadow = true;
     this.sun.shadow.mapSize.set(this.quality.shadowMap, this.quality.shadowMap);
     this.sun.shadow.camera.near = 4;
@@ -213,6 +230,7 @@ export class Game {
     this.drive.settle();
     this.scene.add(this.car.group);
     this.addContact();
+    this.addSkid();
     this.particles = new Particles(this.scene, this.quality.particles);
     this.setupBloom();
     this.input.attach(() => this.sfx.unlock());
@@ -334,9 +352,11 @@ export class Game {
       vz: number;
     } | null = null;
     const extras: ContactPoint[] = [];
+    let boosted = false;
     while (this.accum >= 1 / 60 && steps < 5) {
       this.pose = this.drive.step(1 / 60, { throttle: command.throttle, steer: command.steer, trick: trickEdge });
       trickEdge = false;
+      if (this.pose.boosted) boosted = true;
       if (this.pose.hopped) this.sfx.boing();
       if (this.pose.spun) {
         this.sfx.yay();
@@ -364,6 +384,13 @@ export class Game {
       steps += 1;
     }
     if (!this.pose) return;
+    if (boosted) {
+      this.particles.smokeBurst(this.pose.x, this.pose.y + 0.25, this.pose.z);
+      this.shakeAmp = Math.max(this.shakeAmp, 0.03);
+    }
+    if (landed) this.skidHold = Math.max(this.skidHold, 0.28);
+    this.skidHold = Math.max(0, this.skidHold - dt);
+    this.paintSkid(this.pose);
 
     if (this.pose.tricking) {
       this.trickSpark += dt;
@@ -450,13 +477,14 @@ export class Game {
     if (celebrate) {
       this.sfx.jingle();
       this.particles.dustBurst(contact.x, contact.y, contact.z);
-      this.shakeAmp = Math.max(this.shakeAmp, 0.14 + strength * 0.32);
+      this.particles.smokeBurst(contact.x, contact.y + 0.4, contact.z);
+      this.shakeAmp = Math.max(this.shakeAmp, 0.035 + strength * 0.06);
     } else if (strength > 0.35) {
-      this.shakeAmp = Math.max(this.shakeAmp, strength * 0.16);
+      this.shakeAmp = Math.max(this.shakeAmp, strength * 0.03);
     }
 
     const ranked = this.car.parts
-      .filter((part) => !part.detached && fallSpeed + (celebrate ? 0.5 : 0) >= part.minSpeed)
+      .filter((part) => part.wheelIndex === undefined && !part.detached && fallSpeed + (celebrate ? 0.5 : 0) >= part.minSpeed)
       .sort((a, b) => a.localPos.distanceTo(local) - b.localPos.distanceTo(local));
     let popped = 0;
     for (const part of ranked) {
@@ -751,31 +779,142 @@ export class Game {
 
   private addContact(): void {
     const canvas = document.createElement('canvas');
-    canvas.width = 64;
-    canvas.height = 64;
+    canvas.width = 128;
+    canvas.height = 128;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
-    const gradient = ctx.createRadialGradient(32, 32, 4, 32, 32, 32);
+    const gradient = ctx.createRadialGradient(64, 64, 6, 64, 64, 64);
     gradient.addColorStop(0, 'rgba(0,0,0,0.5)');
+    gradient.addColorStop(0.32, 'rgba(0,0,0,0.26)');
+    gradient.addColorStop(0.68, 'rgba(0,0,0,0.08)');
     gradient.addColorStop(1, 'rgba(0,0,0,0)');
     ctx.fillStyle = gradient;
-    ctx.fillRect(0, 0, 64, 64);
+    ctx.fillRect(0, 0, 128, 128);
     const map = new THREE.CanvasTexture(canvas);
     this.contact = new THREE.Mesh(
-      new THREE.PlaneGeometry(2.1, 2.4),
-      new THREE.MeshBasicMaterial({ map, transparent: true, depthWrite: false, opacity: 0.42, toneMapped: true }),
+      new THREE.PlaneGeometry(3.3, 4.8),
+      new THREE.MeshBasicMaterial({ map, transparent: true, depthWrite: false, opacity: 0.36, toneMapped: false }),
     );
-    this.contact.rotation.x = -Math.PI / 2;
     this.contact.renderOrder = 2;
+    this.tiltQ.setFromAxisAngle(new THREE.Vector3(1, 0, 0), -Math.PI / 2);
     this.scene.add(this.contact);
+  }
+
+  private addSkid(): void {
+    const samples = this.skidSamples;
+    this.skidPos = new Float32Array(samples * 12);
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(this.skidPos, 3));
+    const index: number[] = [];
+    for (let i = 0; i < samples - 1; i++) {
+      const a = i * 4;
+      const b = a + 4;
+      index.push(a, a + 1, b, b, a + 1, b + 1);
+      index.push(a + 2, a + 3, b + 2, b + 2, a + 3, b + 3);
+    }
+    geo.setIndex(index);
+    geo.setDrawRange(0, 0);
+    this.skid = new THREE.Mesh(
+      geo,
+      new THREE.MeshBasicMaterial({
+        color: 0x1a1a1a,
+        transparent: true,
+        opacity: 0.58,
+        depthWrite: false,
+        side: THREE.DoubleSide,
+        polygonOffset: true,
+        polygonOffsetFactor: -2,
+        polygonOffsetUnits: -2,
+      }),
+    );
+    this.skid.frustumCulled = false;
+    this.skid.renderOrder = 1;
+    this.scene.add(this.skid);
+  }
+
+  private paintSkid(pose: DrivePose): void {
+    if (!this.skid || !this.skidPos) return;
+    const steer = pose.wheels[0]?.steer ?? 0;
+    const sliding = pose.wheelsOn >= 2 && !pose.airborne && (this.skidHold > 0 || (pose.speed > 7 && Math.abs(steer) > 0.22));
+    if (!sliding) {
+      this.skidBreak = true;
+      this.skidMarkX = Number.NaN;
+      return;
+    }
+    const track = this.vehicleType === 'monster' ? 1.05 : this.vehicleType === 'jeep' ? 0.86 : 0.78;
+    const half = this.vehicleType === 'monster' ? 0.34 : 0.16;
+    const moved = this.skidMarkX - pose.x;
+    const movedZ = this.skidMarkZ - pose.z;
+    if (!this.skidBreak && moved * moved + movedZ * movedZ < 0.45 * 0.45) return;
+    this.yawQ.set(pose.qx, pose.qy, pose.qz, pose.qw);
+    this.skidRight.set(1, 0, 0).applyQuaternion(this.yawQ);
+    this.skidRear.set(0, 0, -1.05).applyQuaternion(this.yawQ);
+    this.skidMid.set(pose.x, pose.y, pose.z).add(this.skidRear);
+    const yL = (driveSurfaceHeight(this.skidMid.z + this.skidRight.z * track, this.skidMid.x + this.skidRight.x * track) ?? pose.y - 1) + 0.04;
+    const yR = (driveSurfaceHeight(this.skidMid.z - this.skidRight.z * track, this.skidMid.x - this.skidRight.x * track) ?? pose.y - 1) + 0.04;
+    this.skidL0.copy(this.skidMid).addScaledVector(this.skidRight, track + half);
+    this.skidL1.copy(this.skidMid).addScaledVector(this.skidRight, track - half);
+    this.skidR0.copy(this.skidMid).addScaledVector(this.skidRight, -track + half);
+    this.skidR1.copy(this.skidMid).addScaledVector(this.skidRight, -track - half);
+    this.skidL0.y = yL;
+    this.skidL1.y = yL;
+    this.skidR0.y = yR;
+    this.skidR1.y = yR;
+    this.skidMarkX = pose.x;
+    this.skidMarkZ = pose.z;
+    this.pushSkid(this.skidL0, this.skidL1, this.skidR0, this.skidR1);
+  }
+
+  private pushSkid(l0: THREE.Vector3, l1: THREE.Vector3, r0: THREE.Vector3, r1: THREE.Vector3): void {
+    if (!this.skid || !this.skidPos) return;
+    const samples = this.skidSamples;
+    const write = (index: number, a: THREE.Vector3, b: THREE.Vector3, c: THREE.Vector3, d: THREE.Vector3) => {
+      const o = index * 12;
+      const put = (slot: number, p: THREE.Vector3) => {
+        this.skidPos![o + slot * 3] = p.x;
+        this.skidPos![o + slot * 3 + 1] = p.y;
+        this.skidPos![o + slot * 3 + 2] = p.z;
+      };
+      put(0, a);
+      put(1, b);
+      put(2, c);
+      put(3, d);
+    };
+    if (this.skidCount >= samples) {
+      this.skidPos.copyWithin(0, 12);
+      this.skidCount = samples - 1;
+    }
+    if (this.skidBreak && this.skidCount > 0) {
+      const prev = (this.skidCount - 1) * 12;
+      this.skidPos.copyWithin(this.skidCount * 12, prev, prev + 12);
+      this.skidCount += 1;
+      if (this.skidCount >= samples) {
+        this.skidPos.copyWithin(0, 12);
+        this.skidCount = samples - 1;
+      }
+    }
+    write(this.skidCount, l0, l1, r0, r1);
+    this.skidCount += 1;
+    this.skidBreak = false;
+    const attr = this.skid.geometry.getAttribute('position') as THREE.BufferAttribute;
+    attr.needsUpdate = true;
+    this.skid.geometry.setDrawRange(0, Math.max(0, (this.skidCount - 1) * 12));
   }
 
   private placeContact(pose: DrivePose): void {
     if (!this.contact) return;
     const ground = driveSurfaceHeight(pose.z, pose.x);
-    this.contact.visible = pose.wheelsOn > 0 && ground !== null;
+    const airFade = pose.airborne ? Math.max(0, 1 - pose.airTime * 1.1) : 1;
+    this.contact.visible = ground !== null && airFade > 0.04;
+    const mat = this.contact.material as THREE.MeshBasicMaterial;
+    mat.opacity = 0.4 * airFade;
     if (ground === null) return;
-    this.contact.position.set(pose.x, ground + 0.035, pose.z);
+    const wide = this.vehicleType === 'monster' ? 1.42 : this.vehicleType === 'jeep' ? 1.16 : 1;
+    this.contact.scale.set(wide, wide * 1.08, 1);
+    this.contact.position.set(pose.x, ground + 0.045, pose.z);
+    const yaw = Math.atan2(2 * (pose.qw * pose.qy + pose.qx * pose.qz), 1 - 2 * (pose.qy * pose.qy + pose.qz * pose.qz));
+    this.yawQ.setFromAxisAngle(UP, yaw);
+    this.contact.quaternion.copy(this.yawQ).multiply(this.tiltQ);
   }
 
   private paintSpeed(): void {
